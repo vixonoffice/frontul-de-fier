@@ -1,0 +1,463 @@
+/* Frontul de Fier — UI global. Gunmetal + amber + albastru de echipă, fără glassmorphism. */
+
+:root {
+  color-scheme: dark;
+  --bg-0: #0a0c0d;
+  --panel: #14171a;
+  --panel-2: #1c2024;
+  --panel-3: #22272c;
+  --line: #2e343a;
+  --line-soft: #242a2f;
+  --text: #e9edf0;
+  --mut: #8a9299;
+  --amber: #f0b13a;
+  --amber-ink: #241a06;
+  --blue: #3d9bff;
+  --red: #ff4a3a;
+  --ok: #6fd97f;
+  --font: 'Chakra Petch', ui-monospace, 'Segoe UI', system-ui, sans-serif;
+
+  --topbar-h: 52px;
+  --sidebar-w: 304px;
+  --minimap-h: 228px;
+  --drawer-h: 164px;
+  --mini-float-w: 128px;
+  --mini-float-h: 96px;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--bg-0);
+  color: var(--text);
+  font-family: var(--font);
+  overflow: hidden;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+}
+
+button {
+  font-family: var(--font);
+  color: inherit;
+}
+
+:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.tabular { font-variant-numeric: tabular-nums; }
+.upper { text-transform: uppercase; letter-spacing: .08em; }
+
+/* textura subtilă de scanline/zgomot pe panouri */
+.panel-tex {
+  background-image:
+    repeating-linear-gradient(0deg, rgba(255,255,255,.012) 0px, rgba(255,255,255,.012) 1px, transparent 1px, transparent 3px),
+    radial-gradient(ellipse at 20% -10%, rgba(240,177,58,.05), transparent 60%);
+}
+
+#app {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-0);
+}
+
+/* ---------- bară de sus ---------- */
+#topbar {
+  height: var(--topbar-h);
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  padding: 0 16px;
+  background: var(--panel);
+  border-bottom: 1px solid var(--line);
+  z-index: 30;
+  font-size: 13px;
+}
+.tb-stat { display: flex; align-items: center; gap: 7px; white-space: nowrap; color: var(--mut); }
+.tb-stat svg { width: 17px; height: 17px; color: var(--mut); }
+.tb-stat b { color: var(--text); font-size: 15px; font-weight: 600; }
+#tb-credits b { color: var(--amber); font-size: 17px; }
+#tb-credits svg { color: var(--amber); }
+.tb-sep { flex: 1; }
+#tb-wave { color: var(--mut); }
+#tb-wave b { color: var(--text); }
+#tb-wave.hot { color: var(--red); }
+#tb-wave.hot b { color: var(--red); }
+#pauseBtn {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  width: 36px; height: 36px;
+  display: grid; place-items: center;
+  cursor: pointer;
+  color: var(--text);
+}
+#pauseBtn svg { width: 18px; height: 18px; }
+#pauseBtn:hover { border-color: var(--blue); }
+
+/* ---------- scena de joc ---------- */
+#stage {
+  position: absolute;
+  top: var(--topbar-h);
+  left: 0; right: 0; bottom: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: #060708;
+}
+#gamecanvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  touch-action: none;
+  cursor: crosshair;
+}
+#gamecanvas.placing { cursor: cell; }
+
+#boxSelect {
+  position: absolute;
+  border: 1px solid var(--blue);
+  background: rgba(61,155,255,.14);
+  pointer-events: none;
+  display: none;
+  z-index: 15;
+}
+
+/* ---------- minihartă ---------- */
+#minimapPanel {
+  position: absolute;
+  z-index: 25;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+#minimapPanel .mm-head {
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 6px 9px 4px;
+  font-size: 10px; letter-spacing: .14em; color: var(--mut);
+}
+.mm-stack {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  cursor: pointer;
+  touch-action: none;
+  overflow: hidden;
+}
+.mm-stack canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+#minimap { image-rendering: pixelated; }
+#minimapFx { pointer-events: none; }
+
+/* ---------- panou selecție (flotant peste scenă) ---------- */
+#selectionPanel {
+  position: absolute;
+  left: 10px;
+  bottom: 10px;
+  z-index: 18;
+  min-width: 170px;
+  max-width: 300px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 11px;
+  font-size: 12px;
+  display: none;
+}
+#selectionPanel.show { display: block; }
+#selectionPanel .sp-title { color: var(--mut); font-size: 10px; letter-spacing: .12em; margin-bottom: 6px; }
+#selectionPanel .sp-rows { display: flex; flex-direction: column; gap: 5px; }
+#selectionPanel .sp-row { display: flex; align-items: center; gap: 7px; }
+#selectionPanel .sp-row svg { width: 16px; height: 16px; color: var(--blue); flex: 0 0 auto; }
+#selectionPanel .sp-row .cnt { color: var(--text); font-weight: 600; min-width: 1.4em; }
+#selectionPanel .sp-hpbar { flex: 1; height: 5px; background: #000; border-radius: 3px; overflow: hidden; }
+#selectionPanel .sp-hpbar i { display: block; height: 100%; background: var(--ok); }
+#selectionPanel .sp-rally {
+  margin-top: 8px; width: 100%; padding: 6px 8px; font-size: 11px; letter-spacing: .06em;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text); border-radius: 4px; cursor: pointer;
+}
+#selectionPanel .sp-rally:hover { border-color: var(--amber); color: var(--amber); }
+
+/* ---------- toolbar mobil ---------- */
+#mobileToolbar {
+  position: absolute;
+  left: 8px; top: 8px;
+  z-index: 17;
+  display: none;
+  gap: 6px;
+  flex-wrap: wrap;
+  max-width: calc(100% - var(--mini-float-w) - 24px);
+}
+.mt-btn {
+  font: 600 11px var(--font);
+  letter-spacing: .05em;
+  text-transform: uppercase;
+  color: var(--text);
+  background: rgba(20,23,26,.92);
+  border: 1px solid var(--line);
+  border-radius: 5px;
+  padding: 10px 11px;
+  min-height: 44px;
+  cursor: pointer;
+}
+.mt-btn.on { border-color: var(--blue); color: var(--blue); }
+
+/* ---------- toasturi ---------- */
+#toasts {
+  position: absolute;
+  left: 50%; top: 10px;
+  transform: translateX(-50%);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-items: center;
+  pointer-events: none;
+  max-width: calc(100% - 2 * var(--mini-float-w));
+}
+.toast {
+  background: rgba(12,14,16,.92);
+  border-left: 3px solid var(--amber);
+  border-radius: 2px;
+  padding: 7px 13px;
+  font-size: 13px;
+  letter-spacing: .02em;
+  white-space: nowrap;
+  box-shadow: 0 4px 14px rgba(0,0,0,.4);
+  animation: toast-in .18s ease-out;
+}
+.toast.bad { border-color: var(--red); }
+.toast.fade { opacity: 0; transition: opacity .35s ease; }
+@keyframes toast-in { from { opacity: 0; transform: translateY(-6px); } to { opacity: 1; transform: translateY(0); } }
+
+/* ---------- panou de construcție (sidebar desktop / sertar mobil) ---------- */
+#buildPanel {
+  position: absolute;
+  z-index: 25;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  display: flex;
+  flex-direction: column;
+}
+.bp-power {
+  padding: 10px 12px 8px;
+  border-bottom: 1px solid var(--line-soft);
+  flex: 0 0 auto;
+}
+.bp-power .bp-cr {
+  display: flex; align-items: baseline; gap: 7px; margin-bottom: 7px;
+}
+.bp-power .bp-cr b { color: var(--amber); font-size: 24px; font-weight: 700; }
+.bp-power .bp-cr span { color: var(--mut); font-size: 10px; letter-spacing: .14em; }
+.bp-bar-label { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: .1em; color: var(--mut); margin-bottom: 3px; }
+.bp-bar { height: 6px; background: #000; border-radius: 3px; overflow: hidden; border: 1px solid var(--line-soft); }
+.bp-bar i { display: block; height: 100%; background: var(--amber); transition: width .25s ease; }
+
+.bp-tabs {
+  display: flex;
+  flex: 0 0 auto;
+  border-bottom: 1px solid var(--line-soft);
+}
+.bp-tab {
+  flex: 1;
+  padding: 9px 4px;
+  font: 600 11px var(--font);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  color: var(--mut);
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+.bp-tab.active { color: var(--amber); border-bottom-color: var(--amber); }
+
+.bp-viewport { flex: 1; min-height: 0; overflow-y: auto; overflow-x: hidden; }
+.bp-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 10px;
+}
+
+.card {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 10px;
+  cursor: pointer;
+  text-align: left;
+  color: var(--text);
+  overflow: hidden;
+  min-height: 56px;
+}
+.card:disabled { opacity: .4; cursor: not-allowed; }
+.card:not(:disabled):hover { border-color: var(--blue); }
+.card.ready { border-color: var(--ok); }
+.card .c-icon {
+  width: 34px; height: 34px;
+  flex: 0 0 auto;
+  display: grid; place-items: center;
+  background: var(--panel-3);
+  border: 1px solid var(--line-soft);
+  border-radius: 5px;
+  color: var(--text);
+  z-index: 1;
+}
+.card .c-icon svg { width: 24px; height: 24px; }
+.card .c-body { flex: 1; min-width: 0; z-index: 1; }
+.card .c-name { font-size: 12.5px; font-weight: 600; letter-spacing: .02em; }
+.card .c-cost { font-size: 11px; color: var(--amber); font-variant-numeric: tabular-nums; }
+.card .c-status { font-size: 10px; color: var(--mut); letter-spacing: .05em; }
+.card.ready .c-status { color: var(--ok); font-weight: 600; }
+.card .c-badge {
+  position: absolute; top: 6px; right: 7px;
+  background: var(--blue); color: #06121c;
+  font-size: 10px; font-weight: 700;
+  min-width: 16px; height: 16px; border-radius: 8px;
+  display: grid; place-items: center;
+  padding: 0 4px;
+  z-index: 2;
+}
+/* umplere verticală (stil Red Alert) a progresului, din jos spre sus */
+.card .c-wipe {
+  position: absolute; left: 0; right: 0; bottom: 0;
+  height: 0%;
+  background: linear-gradient(0deg, rgba(61,155,255,.32), rgba(61,155,255,.1));
+  border-top: 1px solid rgba(61,155,255,.6);
+  transition: height .12s linear;
+  z-index: 0;
+}
+
+/* ---------- ecrane ---------- */
+.screen {
+  position: absolute; inset: 0;
+  display: none;
+  place-items: center;
+  background: rgba(6,7,8,.82);
+  z-index: 60;
+  padding: 16px;
+}
+.screen.show { display: grid; }
+.screen-card {
+  width: min(460px, 100%);
+  background: var(--panel);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  padding: 26px 26px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.screen-card h1 {
+  margin: 0;
+  font-size: 30px;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  line-height: 1.15;
+}
+.screen-card h1 span { color: var(--amber); }
+.screen-card h1.defeat span { color: var(--red); }
+.screen-card p { margin: 0; color: var(--mut); font-size: 13.5px; line-height: 1.55; }
+.screen-card ol, .screen-card ul { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 6px; font-size: 13px; line-height: 1.4; color: var(--text); }
+
+.diff-row { display: flex; gap: 8px; }
+.diff-btn {
+  flex: 1;
+  padding: 10px 6px;
+  font: 600 12px var(--font);
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+  border-radius: 5px;
+  cursor: pointer;
+  min-height: 44px;
+}
+.diff-btn.sel { border-color: var(--amber); color: var(--amber); }
+
+.btn-primary {
+  font: 700 15px var(--font);
+  letter-spacing: .1em;
+  text-transform: uppercase;
+  background: var(--blue);
+  color: #06121c;
+  border: 0;
+  padding: 13px;
+  border-radius: 5px;
+  cursor: pointer;
+  min-height: 48px;
+}
+.btn-primary:hover { filter: brightness(1.08); }
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+}
+.stat-grid .st {
+  background: var(--panel-2);
+  border: 1px solid var(--line);
+  border-radius: 6px;
+  padding: 9px 11px;
+}
+.stat-grid .st .v { font-size: 19px; font-weight: 700; color: var(--text); font-variant-numeric: tabular-nums; }
+.stat-grid .st .k { font-size: 10px; color: var(--mut); letter-spacing: .08em; text-transform: uppercase; }
+
+/* ---------- responsive: desktop (sidebar) vs mobil (sertar) ---------- */
+@media (min-width: 701px) {
+  #stage { right: var(--sidebar-w); }
+  #minimapPanel { top: var(--topbar-h); right: 0; width: var(--sidebar-w); height: var(--minimap-h); border-left: 1px solid var(--line); }
+  #buildPanel { top: calc(var(--topbar-h) + var(--minimap-h)); right: 0; bottom: 0; width: var(--sidebar-w); border-left: 1px solid var(--line); }
+  .bp-grid { flex-direction: column; }
+  .card { min-width: 0; }
+  #mobileToolbar { display: none !important; }
+}
+
+@media (max-width: 700px) {
+  :root { --sidebar-w: 0px; }
+  #minimapPanel { top: calc(var(--topbar-h) + 8px); right: 8px; width: var(--mini-float-w); height: var(--mini-float-h); border-radius: 6px; box-shadow: 0 3px 10px rgba(0,0,0,.5); }
+  #minimapPanel .mm-head { display: none; }
+  #stage { bottom: var(--drawer-h); }
+  #buildPanel {
+    left: 0; right: 0; bottom: 0; height: var(--drawer-h);
+    border-top: 1px solid var(--line);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
+  }
+  .bp-power { display: none; }
+  .bp-tabs { flex: 0 0 auto; }
+  .bp-viewport { overflow-x: auto; overflow-y: hidden; }
+  .bp-grid { flex-direction: row; padding: 8px; height: 100%; }
+  .card { flex-direction: column; min-width: 92px; align-items: flex-start; gap: 4px; padding: 8px 9px; min-height: 44px; }
+  .card .c-icon { width: 28px; height: 28px; }
+  .card .c-icon svg { width: 20px; height: 20px; }
+  #mobileToolbar { display: flex; }
+  #tb-army, #tb-wave .tb-label-long { display: none; }
+  #topbar { gap: 10px; font-size: 12px; padding: 0 10px; }
+  .screen-card { padding: 20px 18px 18px; }
+  .screen-card h1 { font-size: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * { transition: none !important; animation: none !important; }
+}
