@@ -2,15 +2,44 @@
 // minereu instantiat (scalat cu cantitatea ramasa), iarba/pietre decorative instantiate.
 import * as THREE from 'three';
 import { TERRAIN_ROCK, TERRAIN_WATER, type MapData } from '../sim/types';
-import { createRock, rockMaterial, oreCrystalGeometry, oreMaterial, grassGeometry, grassMaterial } from './models';
+import { createRock, rockMaterial, ROCK_TINTS, oreCrystalGeometries, oreMaterial, grassGeometry, grassMaterial } from './models';
 
 export const RELIEF_SCALE = 1.4;
-const GROUND_VARIANTS = [0x7d7650, 0x6b6a45, 0x8b7d55];
+// paleta calma de stepa uscata — variatie pe suprafete mari, nu zgomot tile-cu-tile
+const GROUND_COOL = 0x6b6a45;
+const GROUND_WARM = 0x8b7d55;
+const GROUND_DRY = 0x8f8a5c;
+const GROUND_SOIL = 0x585340;
+const GROUND_BASE = 0x7d7650;
 const ROCK_GROUND = 0x5a564b;
 
 function hash2(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
   return s - Math.floor(s);
+}
+
+/** zgomot lin, pe mai multe tile-uri deodata (nu sare de la un tile la altul) */
+function smoothNoise(x: number, y: number, freq: number, phase: number): number {
+  const n =
+    Math.sin(x * freq + phase) * 0.5 + Math.sin(y * freq * 1.3 - phase * 0.7) * 0.5 +
+    Math.sin((x + y) * freq * 0.6 + phase * 1.6) * 0.4;
+  return Math.max(0, Math.min(1, n * 0.33 + 0.5));
+}
+
+function softGlowTexture(): THREE.Texture {
+  const size = 64;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  const grad = ctx.createRadialGradient(size / 2, size / 2, 0, size / 2, size / 2, size / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,0.9)');
+  grad.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.fillRect(0, 0, size, size);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  return tex;
 }
 
 export interface TerrainBuild {
@@ -49,21 +78,29 @@ export function buildTerrain(map: MapData): TerrainBuild {
       positions[i * 3 + 1] = hv * RELIEF_SCALE;
       positions[i * 3 + 2] = vy;
 
-      // culoare = media tile-urilor adiacente
+      // culoare = media tile-urilor adiacente, pe baza unui zgomot lin (pete mari, nu sare-si-piper)
       let r = 0, g = 0, b = 0, n = 0;
       for (const [tx, ty] of [[vx - 1, vy - 1], [vx, vy - 1], [vx - 1, vy], [vx, vy]] as const) {
         const cx = Math.max(0, Math.min(w - 1, tx));
         const cy = Math.max(0, Math.min(h - 1, ty));
         const t = terrain[cy * w + cx];
-        let c = GROUND_VARIANTS[Math.floor(hash2(cx, cy) * GROUND_VARIANTS.length) % GROUND_VARIANTS.length];
-        if (t === TERRAIN_ROCK) c = ROCK_GROUND;
-        else if (t === TERRAIN_WATER) c = GROUND_VARIANTS[1];
-        col.setHex(c);
+        const base = new THREE.Color(GROUND_COOL).lerp(new THREE.Color(GROUND_WARM), smoothNoise(cx, cy, 0.07, 0));
+        base.lerp(new THREE.Color(GROUND_BASE), 0.35);
+        const dryT = smoothNoise(cx, cy, 0.05, 11.3);
+        if (dryT > 0.68) base.lerp(new THREE.Color(GROUND_DRY), (dryT - 0.68) / 0.32);
+        const soilT = smoothNoise(cx, cy, 0.045, 27.1);
+        if (soilT < 0.26) base.lerp(new THREE.Color(GROUND_SOIL), (0.26 - soilT) / 0.26);
+        let c = base;
+        if (t === TERRAIN_ROCK) c = new THREE.Color(ROCK_GROUND);
+        else if (t === TERRAIN_WATER) c = new THREE.Color(GROUND_COOL);
+        col.copy(c);
         r += col.r; g += col.g; b += col.b; n++;
       }
-      colors[i * 3 + 0] = r / n;
-      colors[i * 3 + 1] = g / n;
-      colors[i * 3 + 2] = b / n;
+      // zgomot fin per-vertex, foarte usor — rupe aspectul de plastic neted
+      const jitter = 0.94 + hash2(vx, vy) * 0.12;
+      colors[i * 3 + 0] = (r / n) * jitter;
+      colors[i * 3 + 1] = (g / n) * jitter;
+      colors[i * 3 + 2] = (b / n) * jitter;
     }
   }
   const indices: number[] = [];
@@ -135,10 +172,14 @@ export function buildTerrain(map: MapData): TerrainBuild {
     rockMesh = new THREE.InstancedMesh(rockGeo, rockMaterial(), rockPositions.length);
     rockMesh.castShadow = true;
     rockMesh.receiveShadow = true;
+    const rockColors = new Float32Array(rockPositions.length * 3);
+    rockMesh.instanceColor = new THREE.InstancedBufferAttribute(rockColors, 3);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
+    const tintA = new THREE.Color();
+    const tintB = new THREE.Color();
     for (let i = 0; i < rockPositions.length; i++) {
       const { x, y } = rockPositions[i];
       const jx = x + 0.2 + hash2(x, y + i) * 0.6;
@@ -150,26 +191,58 @@ export function buildTerrain(map: MapData): TerrainBuild {
       s.set(scale, scale * (0.7 + hash2(y, x) * 0.6), scale);
       m.compose(p, q, s);
       rockMesh.setMatrixAt(i, m);
+      tintA.setHex(ROCK_TINTS[i % ROCK_TINTS.length]);
+      tintB.setHex(ROCK_TINTS[(i + 1) % ROCK_TINTS.length]);
+      tintA.lerp(tintB, hash2(x + 5, y + 5));
+      rockColors[i * 3] = tintA.r; rockColors[i * 3 + 1] = tintA.g; rockColors[i * 3 + 2] = tintA.b;
     }
     rockMesh.instanceMatrix.needsUpdate = true;
+    rockMesh.instanceColor.needsUpdate = true;
     group.add(rockMesh);
   }
 
-  // --- minereu instantiat ---
-  const oreTiles: { x: number; y: number; idx: number }[] = [];
+  // --- minereu instantiat: ciorchine de cristale alungite + glow pe sol ---
+  const oreTiles: { x: number; y: number; idx: number; count: number }[] = [];
   for (let ty = 0; ty < h; ty++) {
     for (let tx = 0; tx < w; tx++) {
       const idx = ty * w + tx;
-      if (ore[idx] > 0) oreTiles.push({ x: tx, y: ty, idx });
+      if (ore[idx] > 0) oreTiles.push({ x: tx, y: ty, idx, count: 3 + Math.floor(hash2(tx, ty) * 4) }); // 3..6
     }
   }
-  const ORE_PER_TILE_MAX = 4;
-  const oreMesh = oreTiles.length > 0
-    ? new THREE.InstancedMesh(oreCrystalGeometry(), oreMaterial(), oreTiles.length * ORE_PER_TILE_MAX)
-    : null;
-  if (oreMesh) {
-    oreMesh.castShadow = true;
-    group.add(oreMesh);
+  const ORE_PER_TILE_MAX = 6;
+  const crystalGeos = oreCrystalGeometries();
+  // geometrie combinata (merge) ca sa putem avea 3 forme diferite intr-un singur InstancedMesh e complicat;
+  // folosim un InstancedMesh per forma, fiecare cu propriul subset de sloturi.
+  const oreMeshes: THREE.InstancedMesh[] = crystalGeos.map(
+    (geo) => new THREE.InstancedMesh(geo, oreMaterial(), oreTiles.length * ORE_PER_TILE_MAX),
+  );
+  for (const om of oreMeshes) { om.castShadow = true; group.add(om); }
+
+  let oreGlowMesh: THREE.InstancedMesh | null = null;
+  const glowTex = oreTiles.length > 0 ? softGlowTexture() : null;
+  if (oreTiles.length > 0 && glowTex) {
+    const glowGeo = new THREE.PlaneGeometry(1, 1);
+    glowGeo.rotateX(-Math.PI / 2);
+    const glowMat = new THREE.MeshBasicMaterial({
+      map: glowTex, color: 0xf0b13a, transparent: true, opacity: 0.35,
+      blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false,
+    });
+    oreGlowMesh = new THREE.InstancedMesh(glowGeo, glowMat, oreTiles.length);
+    oreGlowMesh.renderOrder = 1;
+    const gm = new THREE.Matrix4();
+    const gp = new THREE.Vector3();
+    const gq = new THREE.Quaternion();
+    const gs = new THREE.Vector3();
+    for (let i = 0; i < oreTiles.length; i++) {
+      const t = oreTiles[i];
+      const hv = tileH(t.x, t.y) * RELIEF_SCALE;
+      gp.set(t.x + 0.5, hv + 0.03, t.y + 0.5);
+      gs.set(2.6, 2.6, 2.6);
+      gm.compose(gp, gq, gs);
+      oreGlowMesh.setMatrixAt(i, gm);
+    }
+    oreGlowMesh.instanceMatrix.needsUpdate = true;
+    group.add(oreGlowMesh);
   }
 
   // --- iarba si pietre decorative ---
@@ -184,27 +257,32 @@ export function buildTerrain(map: MapData): TerrainBuild {
       for (let i = 0; i < n; i++) grassSpots.push({ x: tx, y: ty });
     }
   }
-  let grassMesh: THREE.InstancedMesh | null = null;
-  if (grassSpots.length > 0) {
-    grassMesh = new THREE.InstancedMesh(grassGeo, grassMaterial(), grassSpots.length);
+  // doua culori (olive / khaki) in doua batch-uri instantiate separate
+  const grassSpotsA = grassSpots.filter((_, i) => hash2(grassSpots[i].x, grassSpots[i].y + i) < 0.5);
+  const grassSpotsB = grassSpots.filter((_, i) => hash2(grassSpots[i].x, grassSpots[i].y + i) >= 0.5);
+  const grassMeshes: THREE.InstancedMesh[] = [];
+  for (const [spots, variant] of [[grassSpotsA, 0], [grassSpotsB, 1]] as const) {
+    if (spots.length === 0) continue;
+    const gmesh = new THREE.InstancedMesh(grassGeo, grassMaterial(variant), spots.length);
     const m = new THREE.Matrix4();
     const q = new THREE.Quaternion();
     const s = new THREE.Vector3();
     const p = new THREE.Vector3();
-    for (let i = 0; i < grassSpots.length; i++) {
-      const { x, y } = grassSpots[i];
-      const jx = x + hash2(x, y + i * 3) ;
+    for (let i = 0; i < spots.length; i++) {
+      const { x, y } = spots[i];
+      const jx = x + hash2(x, y + i * 3);
       const jy = y + hash2(x + i * 5, y);
       const hv = tileH(x, y) * RELIEF_SCALE;
-      const scale = 0.6 + hash2(x + i, y + i) * 0.7;
+      const scale = 0.55 + hash2(x + i, y + i) * 0.6;
       p.set(jx, hv, jy);
       q.setFromEuler(new THREE.Euler(0, hash2(x * 2, y * 2 + i) * Math.PI * 2, 0));
       s.set(scale, scale, scale);
       m.compose(p, q, s);
-      grassMesh.setMatrixAt(i, m);
+      gmesh.setMatrixAt(i, m);
     }
-    grassMesh.instanceMatrix.needsUpdate = true;
-    group.add(grassMesh);
+    gmesh.instanceMatrix.needsUpdate = true;
+    group.add(gmesh);
+    grassMeshes.push(gmesh);
   }
 
   const bilinear = (x: number, y: number): number => {
@@ -227,29 +305,37 @@ export function buildTerrain(map: MapData): TerrainBuild {
   const pV = new THREE.Vector3();
   const update = (time: number): void => {
     if (waterMat) waterMat.uniforms.time.value = time;
-    if (oreMesh) {
-      let inst = 0;
+    if (oreMeshes.length > 0) {
       const shimmer = 1 + Math.sin(time * 2) * 0.08;
+      const insts = oreMeshes.map(() => 0);
       for (const tile of oreTiles) {
         const amount = ore[tile.idx];
         if (amount <= 0) continue;
         const frac = Math.min(1, amount / 400);
-        const count = Math.max(1, Math.round(frac * ORE_PER_TILE_MAX));
+        const count = Math.max(2, Math.round(frac * tile.count));
         for (let i = 0; i < count; i++) {
+          const variant = i % oreMeshes.length;
           const jx = tile.x + 0.25 + hash2(tile.x, tile.y + i) * 0.5;
           const jy = tile.y + 0.25 + hash2(tile.x + i, tile.y) * 0.5;
           const hv = tileH(tile.x, tile.y) * RELIEF_SCALE;
-          const scale = (0.5 + frac * 0.8) * shimmer;
-          pV.set(jx, hv + 0.15 * scale, jy);
-          qI.setFromEuler(new THREE.Euler(time * 0.3 + i, time * 0.5, 0));
+          const scale = (0.6 + frac * 0.7) * shimmer;
+          pV.set(jx, hv, jy);
+          // inclinare statica per instanta (nu se roteste pe X/Z — doar o usoara rotatie Y continua)
+          const tiltX = (hash2(tile.x + i, tile.y) - 0.5) * 0.7;
+          const tiltZ = (hash2(tile.x, tile.y + i * 2) - 0.5) * 0.7;
+          const spin = time * 0.15 + hash2(tile.x, tile.y) * Math.PI * 2;
+          qI.setFromEuler(new THREE.Euler(tiltX, spin, tiltZ));
           sV.set(scale, scale, scale);
           mtx.compose(pV, qI, sV);
-          oreMesh.setMatrixAt(inst, mtx);
-          inst++;
+          const mesh = oreMeshes[variant];
+          mesh.setMatrixAt(insts[variant], mtx);
+          insts[variant]++;
         }
       }
-      oreMesh.count = inst;
-      oreMesh.instanceMatrix.needsUpdate = true;
+      oreMeshes.forEach((mesh, vi) => {
+        mesh.count = insts[vi];
+        mesh.instanceMatrix.needsUpdate = true;
+      });
     }
   };
   update(0);
@@ -260,6 +346,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
     rockGeo.dispose();
     grassGeo.dispose();
     waterMat?.dispose();
+    glowTex?.dispose();
   };
 
   return { group, heightAt: bilinear, update, dispose };

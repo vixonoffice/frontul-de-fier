@@ -13,11 +13,18 @@ export const TEAM_COLORS: Record<Team, number> = {
   3: 0x54d17a,
 };
 
-const HULL_DARK: Record<Team, number> = {
-  0: 0x203446,
-  1: 0x44241f,
-  2: 0x47401f,
-  3: 0x214432,
+// vopsea militara de nivel mediu (nu negru, nu stralucitoare) — se vede clar culoarea echipei
+const HULL_MID: Record<Team, number> = {
+  0: 0x4a6a86,
+  1: 0x7a3a30,
+  2: 0x8a7a3a,
+  3: 0x3a6a52,
+};
+const HULL_BEVEL: Record<Team, number> = {
+  0: 0x7fa0bd,
+  1: 0xad6a58,
+  2: 0xbdac66,
+  3: 0x6aa084,
 };
 
 const materialCache = new Map<string, THREE.MeshStandardMaterial>();
@@ -32,19 +39,32 @@ function mat(key: string, color: number, opts: Partial<THREE.MeshStandardMateria
 }
 
 function hullMat(team: Team): THREE.MeshStandardMaterial {
-  return mat('hull', HULL_DARK[team], { roughness: 0.65, metalness: 0.45 });
+  return mat('hull', HULL_MID[team], { roughness: 0.72, metalness: 0.25 });
+}
+/** fasie / bevel deschis la culoare, pentru muchii vizibile */
+function bevelMat(team: Team): THREE.MeshStandardMaterial {
+  return mat('bevel', HULL_BEVEL[team], { roughness: 0.55, metalness: 0.3 });
 }
 function teamMat(team: Team): THREE.MeshStandardMaterial {
-  return mat('team', TEAM_COLORS[team], { roughness: 0.45, metalness: 0.5, emissive: TEAM_COLORS[team], emissiveIntensity: 0.04 });
+  return mat('team', TEAM_COLORS[team], { roughness: 0.4, metalness: 0.35, emissive: TEAM_COLORS[team], emissiveIntensity: 0.1 });
 }
 function darkMetal(): THREE.MeshStandardMaterial {
-  return mat('dark', 0x2a2823, { roughness: 0.55, metalness: 0.6 });
+  return mat('dark', 0x6b6860, { roughness: 0.5, metalness: 0.55 });
 }
 function trackMat(): THREE.MeshStandardMaterial {
-  return mat('track', 0x1c1a16, { roughness: 0.9, metalness: 0.2 });
+  return mat('track', 0x2b2b2b, { roughness: 0.85, metalness: 0.2 });
 }
 function concreteMat(): THREE.MeshStandardMaterial {
-  return mat('concrete', 0x8a8470, { roughness: 0.95, metalness: 0.05 });
+  return mat('concrete', 0x8d8a80, { roughness: 0.9, metalness: 0.08 });
+}
+function concreteDarkMat(): THREE.MeshStandardMaterial {
+  return mat('concreteDark', 0x6f6c63, { roughness: 0.9, metalness: 0.08 });
+}
+function accentMat(): THREE.MeshStandardMaterial {
+  return mat('accent', 0xb8b3a5, { roughness: 0.5, metalness: 0.25 });
+}
+function windowMat(): THREE.MeshStandardMaterial {
+  return mat('window', 0xffd9a0, { roughness: 0.3, metalness: 0.1, emissive: 0xffc988, emissiveIntensity: 1.4 });
 }
 function glassMat(): THREE.MeshStandardMaterial {
   return mat('glass', 0x101418, { roughness: 0.2, metalness: 0.8, emissive: 0x335577, emissiveIntensity: 0.3 });
@@ -83,9 +103,21 @@ export function createTank(team: Team): THREE.Group {
   hull.position.y = 0.26;
   g.add(hull);
 
+  // muchie deschisa la culoare pe creasta carenei — citeste bine silueta de sus
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.97, 0.03, 1.32), bevelMat(team));
+  ridge.position.set(0, 0.42, 0);
+  g.add(ridge);
+
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.97, 0.08, 0.3), teamMat(team));
   stripe.position.set(0, 0.32, 0.25);
   g.add(stripe);
+
+  // skirt-uri laterale — suprafata mare de culoare de echipa, vizibila din lateral/de sus
+  for (const side of [-1, 1]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 1.2), teamMat(team));
+    skirt.position.set(side * 0.49, 0.2, 0);
+    g.add(skirt);
+  }
 
   g.add(track(-0.52, 1.4, TEAM_COLORS[team]));
   g.add(track(0.52, 1.4, TEAM_COLORS[team]));
@@ -96,7 +128,10 @@ export function createTank(team: Team): THREE.Group {
   const turret = new THREE.Mesh(new RoundedBoxGeometry(0.62, 0.3, 0.68, 3, 0.09), hullMat(team));
   turret.position.y = 0.15;
   turretPivot.add(turret);
-  const turretBand = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.05, 16), teamMat(team));
+  const turretTop = new THREE.Mesh(new RoundedBoxGeometry(0.46, 0.05, 0.5, 2, 0.06), teamMat(team));
+  turretTop.position.y = 0.31;
+  turretPivot.add(turretTop);
+  const turretBand = new THREE.Mesh(new THREE.CylinderGeometry(0.33, 0.33, 0.05, 16), bevelMat(team));
   turretBand.position.y = 0.26;
   turretPivot.add(turretBand);
 
@@ -127,6 +162,14 @@ export function createRocket(team: Team): THREE.Group {
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.06, 0.26), teamMat(team));
   stripe.position.set(0, 0.29, 0.2);
   g.add(stripe);
+  const ridge = new THREE.Mesh(new THREE.BoxGeometry(0.84, 0.03, 1.22), bevelMat(team));
+  ridge.position.set(0, 0.38, 0);
+  g.add(ridge);
+  for (const side of [-1, 1]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.05, 0.14, 1.1), teamMat(team));
+    skirt.position.set(side * 0.43, 0.18, 0);
+    g.add(skirt);
+  }
   g.add(track(-0.45, 1.3, TEAM_COLORS[team]));
   g.add(track(0.45, 1.3, TEAM_COLORS[team]));
 
@@ -171,6 +214,11 @@ export function createHarvester(team: Team): THREE.Group {
   const hull = new THREE.Mesh(new RoundedBoxGeometry(1.1, 0.34, 1.5, 3, 0.07), hullMat(team));
   hull.position.y = 0.28;
   g.add(hull);
+  for (const side of [-1, 1]) {
+    const skirt = new THREE.Mesh(new THREE.BoxGeometry(0.06, 0.16, 1.4), teamMat(team));
+    skirt.position.set(side * 0.57, 0.2, 0);
+    g.add(skirt);
+  }
   g.add(track(-0.6, 1.6, TEAM_COLORS[team]));
   g.add(track(0.6, 1.6, TEAM_COLORS[team]));
 
@@ -207,12 +255,26 @@ export function createHQ(team: Team): THREE.Group {
   const base = new THREE.Mesh(new RoundedBoxGeometry(2.6, 1.1, 2.6, 3, 0.1), concreteMat());
   base.position.y = 0.55;
   g.add(base);
+  const cornice = new THREE.Mesh(new THREE.BoxGeometry(2.64, 0.08, 2.64), accentMat());
+  cornice.position.y = 1.09;
+  g.add(cornice);
   const band = new THREE.Mesh(new THREE.BoxGeometry(2.62, 0.22, 2.62), teamMat(team));
   band.position.y = 0.3;
   g.add(band);
-  const bunker = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.8, 1.5, 3, 0.08), hullMat(team));
+  for (const s of [-1, 1]) {
+    const win = new THREE.Mesh(new THREE.BoxGeometry(0.9, 0.3, 0.04), windowMat());
+    win.position.set(s * 0.7, 0.6, 1.31);
+    g.add(win);
+  }
+  const bunker = new THREE.Mesh(new RoundedBoxGeometry(1.5, 0.8, 1.5, 3, 0.08), concreteDarkMat());
   bunker.position.y = 1.35;
   g.add(bunker);
+  const bunkerTrim = new THREE.Mesh(new THREE.BoxGeometry(1.52, 0.1, 1.52), teamMat(team));
+  bunkerTrim.position.y = 1.0;
+  g.add(bunkerTrim);
+  const bunkerWin = new THREE.Mesh(new THREE.BoxGeometry(0.7, 0.18, 0.04), windowMat());
+  bunkerWin.position.set(0, 1.4, 0.76);
+  g.add(bunkerWin);
 
   const dishPivot = new THREE.Group();
   dishPivot.position.set(0, 2.0, 0);
@@ -220,10 +282,14 @@ export function createHQ(team: Team): THREE.Group {
   const dishArm = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.5, 6), darkMetal());
   dishArm.position.y = 0.25;
   dishPivot.add(dishArm);
-  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.1, 0.18, 16, 1, true), darkMetal());
+  const dish = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.1, 0.18, 16, 1, true), accentMat());
   dish.position.set(0.4, 0.55, 0);
   dish.rotation.z = Math.PI / 2.4;
   dishPivot.add(dish);
+  const dishRim = new THREE.Mesh(new THREE.TorusGeometry(0.45, 0.025, 6, 16), teamMat(team));
+  dishRim.position.copy(dish.position);
+  dishRim.rotation.copy(dish.rotation);
+  dishPivot.add(dishRim);
 
   const antenna = new THREE.Mesh(new THREE.CylinderGeometry(0.03, 0.03, 0.9, 6), darkMetal());
   antenna.position.set(-0.6, 2.3, 0.6);
@@ -251,21 +317,32 @@ export function createRefinery(team: Team): THREE.Group {
   g.add(dockMark);
 
   for (const sx of [-0.85, 0.85]) {
-    const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.5, 14), hullMat(team));
+    const silo = new THREE.Mesh(new THREE.CylinderGeometry(0.42, 0.42, 1.5, 14), concreteMat());
     silo.position.set(sx, 0.85, -0.5);
     g.add(silo);
-    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), darkMetal());
+    const bandLow = new THREE.Mesh(new THREE.TorusGeometry(0.425, 0.035, 6, 16), accentMat());
+    bandLow.rotation.x = Math.PI / 2;
+    bandLow.position.set(sx, 0.55, -0.5);
+    g.add(bandLow);
+    const cap = new THREE.Mesh(new THREE.SphereGeometry(0.42, 14, 10, 0, Math.PI * 2, 0, Math.PI / 2), accentMat());
     cap.position.set(sx, 1.6, -0.5);
     g.add(cap);
     const ring = new THREE.Mesh(new THREE.TorusGeometry(0.43, 0.05, 6, 16), teamMat(team));
     ring.rotation.x = Math.PI / 2;
     ring.position.set(sx, 1.3, -0.5);
     g.add(ring);
+    const gaugeLight = new THREE.Mesh(new THREE.SphereGeometry(0.045, 6, 6), windowMat());
+    gaugeLight.position.set(sx + 0.3, 1.0, -0.15);
+    g.add(gaugeLight);
   }
   const conveyor = new THREE.Mesh(new RoundedBoxGeometry(1.9, 0.2, 0.4, 2, 0.04), darkMetal());
   conveyor.position.set(0, 0.5, 0.6);
   conveyor.rotation.y = Math.PI / 10;
   g.add(conveyor);
+  const conveyorTrim = new THREE.Mesh(new THREE.BoxGeometry(1.92, 0.04, 0.42), teamMat(team));
+  conveyorTrim.position.copy(conveyor.position).setY(0.6);
+  conveyorTrim.rotation.y = conveyor.rotation.y;
+  g.add(conveyorTrim);
 
   g.userData.footprint = { w: 3, h: 3 };
   g.userData.dockPoint = new THREE.Vector3(0.9, 0.09, 0.9);
@@ -279,21 +356,37 @@ export function createFactory(team: Team): THREE.Group {
   const hangar = new THREE.Mesh(new RoundedBoxGeometry(3, 1.4, 2.6, 3, 0.08), concreteMat());
   hangar.position.y = 0.7;
   g.add(hangar);
-  const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2.6, 10, 1, true, 0, Math.PI), hullMat(team));
+  const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2.6, 10, 1, true, 0, Math.PI), concreteDarkMat());
   roof.rotation.z = Math.PI / 2;
   roof.rotation.y = Math.PI / 2;
   roof.position.y = 1.4;
   g.add(roof);
+  // ribs vizibile pe acoperis
+  for (let i = -1; i <= 1; i++) {
+    const rib = new THREE.Mesh(new THREE.TorusGeometry(1.52, 0.03, 5, 10, Math.PI), accentMat());
+    rib.rotation.y = Math.PI / 2;
+    rib.position.set(0, 1.4, i * 0.8);
+    g.add(rib);
+  }
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(3.02, 0.25, 2.62), teamMat(team));
   stripe.position.y = 0.3;
   g.add(stripe);
+  const cornice = new THREE.Mesh(new THREE.BoxGeometry(3.04, 0.06, 2.64), accentMat());
+  cornice.position.y = 1.39;
+  g.add(cornice);
 
   const doorPivot = new THREE.Group();
   doorPivot.position.set(0, 1.35, 1.3);
   g.add(doorPivot);
-  const door = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.3, 0.1), darkMetal());
+  const door = new THREE.Mesh(new THREE.BoxGeometry(2.4, 1.3, 0.1), concreteDarkMat());
   door.position.y = -0.65;
   doorPivot.add(door);
+  const doorGlow = new THREE.Mesh(new THREE.BoxGeometry(2.1, 0.14, 0.04), windowMat());
+  doorGlow.position.set(0, -0.2, 0.06);
+  doorPivot.add(doorGlow);
+  const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(2.46, 1.36, 0.06), teamMat(team));
+  doorFrame.position.set(0, -0.65, -0.03);
+  doorPivot.add(doorFrame);
 
   g.userData.bayDoor = doorPivot;
   g.userData.footprint = { w: 3, h: 3 };
@@ -317,6 +410,9 @@ export function createTurret(team: Team): THREE.Group {
   const gunBody = new THREE.Mesh(new RoundedBoxGeometry(0.5, 0.35, 0.5, 2, 0.06), hullMat(team));
   gunBody.position.y = 0.15;
   gunPivot.add(gunBody);
+  const gunTrim = new THREE.Mesh(new THREE.BoxGeometry(0.52, 0.05, 0.52), bevelMat(team));
+  gunTrim.position.y = 0.33;
+  gunPivot.add(gunTrim);
   const barrelPivot = new THREE.Group();
   barrelPivot.position.set(0, 0.2, 0);
   gunPivot.add(barrelPivot);
@@ -341,6 +437,7 @@ export function createTurret(team: Team): THREE.Group {
 export function createRock(): THREE.BufferGeometry {
   const geo = new THREE.IcosahedronGeometry(0.5, 0);
   const pos = geo.getAttribute('position') as THREE.BufferAttribute;
+  const colors = new Float32Array(pos.count * 3);
   for (let i = 0; i < pos.count; i++) {
     const jitter = 0.18;
     pos.setXYZ(
@@ -349,31 +446,44 @@ export function createRock(): THREE.BufferGeometry {
       pos.getY(i) + (Math.sin(i * 78.233) * 0.5) * jitter,
       pos.getZ(i) + (Math.sin(i * 37.719) * 0.5) * jitter,
     );
+    // varf mai deschis, baza mai inchisa — citeste volumul de sus
+    const t = Math.max(0, Math.min(1, pos.getY(i) / 0.5 + 0.5));
+    const shade = 0.72 + t * 0.5;
+    colors[i * 3] = shade; colors[i * 3 + 1] = shade; colors[i * 3 + 2] = shade;
   }
+  geo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
   geo.computeVertexNormals();
   return geo;
 }
 
 export function rockMaterial(): THREE.MeshStandardMaterial {
-  return mat('rock', 0x5a564b, { roughness: 0.95, metalness: 0.05 });
+  return mat('rock', 0xffffff, { roughness: 0.92, metalness: 0.06, vertexColors: true });
 }
+export const ROCK_TINTS = [0x7a756a, 0x5f5b52, 0x6e695f];
 
-export function oreCrystalGeometry(): THREE.BufferGeometry {
-  return new THREE.OctahedronGeometry(0.28, 0);
+/** 3 variante de cristale alungite/inclinate, ca grupul sa nu arate ca un patrat plat vazut de sus */
+export function oreCrystalGeometries(): THREE.BufferGeometry[] {
+  const a = new THREE.OctahedronGeometry(0.22, 0);
+  a.scale(1, 2.1, 1);
+  const b = new THREE.ConeGeometry(0.14, 0.62, 5);
+  b.translate(0, 0.31, 0);
+  const c = new THREE.OctahedronGeometry(0.16, 0);
+  c.scale(1, 1.6, 1);
+  return [a, b, c];
 }
 
 export function oreMaterial(): THREE.MeshStandardMaterial {
-  return mat('ore-crystal', 0xf0b13a, { emissive: 0xf0b13a, emissiveIntensity: 0.9, roughness: 0.35, metalness: 0.1 });
+  return mat('ore-crystal', 0xf0b13a, { emissive: 0xf0b13a, emissiveIntensity: 0.6, roughness: 0.3, metalness: 0.15 });
 }
 
 export function grassGeometry(): THREE.BufferGeometry {
-  const geo = new THREE.ConeGeometry(0.06, 0.32, 3);
-  geo.translate(0, 0.16, 0);
+  const geo = new THREE.ConeGeometry(0.045, 0.22, 3);
+  geo.translate(0, 0.11, 0);
   return geo;
 }
 
-export function grassMaterial(): THREE.MeshStandardMaterial {
-  return mat('grass', 0x6f7a3f, { roughness: 1, metalness: 0 });
+export function grassMaterial(variant: 0 | 1 = 0): THREE.MeshStandardMaterial {
+  return mat('grass' + variant, variant === 0 ? 0x6e6b3f : 0x8a8650, { roughness: 0.95, metalness: 0 });
 }
 
 export const MODEL_FACTORY = {
