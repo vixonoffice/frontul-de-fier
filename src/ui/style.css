@@ -262,6 +262,7 @@ button {
 .bp-power .bp-cr {
   display: flex; align-items: baseline; gap: 7px; margin-bottom: 7px;
 }
+.bp-power .bp-cr svg { width: 18px; height: 18px; color: var(--amber); align-self: center; flex: 0 0 auto; }
 .bp-power .bp-cr b { color: var(--amber); font-size: 24px; font-weight: 700; }
 .bp-power .bp-cr span { color: var(--mut); font-size: 10px; letter-spacing: .14em; }
 .bp-bar-label { display: flex; justify-content: space-between; font-size: 9px; letter-spacing: .1em; color: var(--mut); margin-bottom: 3px; }

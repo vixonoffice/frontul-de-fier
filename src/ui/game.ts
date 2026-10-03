@@ -43,6 +43,9 @@ export function startGame(opts: StartGameOptions): GameHandle {
   const canvas = el('canvas', { attrs: { id: 'gamecanvas' }, parent: stage });
   const renderer = createRenderer(canvas);
   renderer.setLocalTeam(localTeam);
+  for (const b of world.buildings.values()) {
+    if (b.team === localTeam && b.type === 'hq') renderer.centerOn({ x: b.tx + 1.5, y: b.ty + 1.5 });
+  }
 
   const isTouch = (matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
 
@@ -120,6 +123,8 @@ export function startGame(opts: StartGameOptions): GameHandle {
       ctx.speed = s;
     },
   };
+
+  if (import.meta.env.DEV) (window as unknown as { __fdf: UiContext }).__fdf = ctx;
 
   const toastsModule = initToasts(ctx);
   ctx.toast = (msg, kind) => toastsModule.push(msg, kind);

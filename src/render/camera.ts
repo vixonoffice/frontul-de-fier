@@ -125,7 +125,7 @@ export class CameraRig {
   }
 
   viewQuad(): THREE.Vector3[] {
-    const corners: [number, number][] = [[0, 0], [this.viewW, 0], [0, this.viewH], [this.viewW, this.viewH]];
+    const corners: [number, number][] = [[0, 0], [this.viewW, 0], [this.viewW, this.viewH], [0, this.viewH]];
     return corners.map(([sx, sy]) => this.raycastGround(sx, sy) ?? this.target.clone());
   }
 }

@@ -12,7 +12,7 @@ if (!root) throw new Error('lipsește elementul #app din index.html');
 
 const setup: GameSetup = {
   seed: (Date.now() & 0xffffffff) >>> 0,
-  mapSize: { w: 64, h: 48 },
+  mapSize: { w: 80, h: 80 },
   players: [
     { team: 0, isAI: false, difficulty: 'normal' },
     { team: 1, isAI: true, difficulty: 'normal' },

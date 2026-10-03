@@ -68,19 +68,19 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   renderer.shadowMap.enabled = true;
   renderer.shadowMap.type = THREE.PCFSoftShadowMap;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.05;
+  renderer.toneMappingExposure = 1.12;
   renderer.outputColorSpace = THREE.SRGBColorSpace;
 
   const scene = new THREE.Scene();
-  scene.background = new THREE.Color(0xb9c7c2);
-  scene.fog = new THREE.Fog(0xb9c7c2, 36, 110);
+  scene.background = new THREE.Color(0x0b0e12);
+  scene.fog = new THREE.Fog(0x1a2026, 70, 190);
 
   const camera = new CameraRig(initialW / Math.max(1, initialH));
 
-  const hemi = new THREE.HemisphereLight(0x9aa08a, 0x3a3526, 0.65);
+  const hemi = new THREE.HemisphereLight(0xc4d6e8, 0x6a5c3e, 1.15);
   scene.add(hemi);
   const sunDir = new THREE.Vector3(-0.45, 1, 0.35).normalize();
-  const sun = new THREE.DirectionalLight(0xffdca8, 1.9);
+  const sun = new THREE.DirectionalLight(0xffe4bc, 2.7);
   sun.castShadow = true;
   sun.shadow.mapSize.set(narrow ? 1024 : 2048, narrow ? 1024 : 2048);
   sun.shadow.bias = -0.0008;
@@ -142,7 +142,11 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     fogOverlay = new FogOverlay(world.map);
     scene.add(fogOverlay.mesh);
     camera.setMapBounds(mapW, mapH);
-    camera.centerOn(mapW / 2, heightAt(mapW / 2, mapH / 2), mapH / 2);
+    let cx = mapW / 2, cy = mapH / 2;
+    for (const b of world.buildings.values()) {
+      if (b.team === localTeam && b.type === 'hq') { cx = b.tx + 1.5; cy = b.ty + 1.5; }
+    }
+    camera.centerOn(cx, heightAt(cx, cy), cy);
   }
 
   function disposeObject3D(obj: THREE.Object3D): void {
@@ -367,9 +371,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     if (world.tick !== lastTick) {
       syncEntities(world);
       processEvents(world);
-      if (fogOverlay) fogOverlay.update(world.fog[localTeam] ?? new Uint8Array(mapW * mapH));
       lastTick = world.tick;
     }
+    if (fogOverlay) fogOverlay.update(world.fog[localTeam] ?? new Uint8Array(mapW * mapH), dtSeconds);
     updateVisuals(world, alpha, dtSeconds);
     terrain?.update(clock);
     effects.update(dtSeconds);

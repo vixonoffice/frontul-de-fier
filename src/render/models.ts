@@ -477,13 +477,27 @@ export function oreMaterial(): THREE.MeshStandardMaterial {
 }
 
 export function grassGeometry(): THREE.BufferGeometry {
-  const geo = new THREE.ConeGeometry(0.045, 0.22, 3);
-  geo.translate(0, 0.11, 0);
+  // smoc din 5 fire evazate, intr-o singura geometrie
+  const pos: number[] = [];
+  for (let k = 0; k < 5; k++) {
+    const a = (k / 5) * Math.PI * 2 + k * 0.7;
+    const lean = 0.09 + (k % 2) * 0.05;
+    const hgt = 0.2 + (k % 3) * 0.07;
+    const bx = Math.cos(a) * 0.04, bz = Math.sin(a) * 0.04;
+    const px = -Math.sin(a) * 0.035, pz = Math.cos(a) * 0.035;
+    pos.push(bx - px, 0, bz - pz, bx + px, 0, bz + pz, bx + Math.cos(a) * lean, hgt, bz + Math.sin(a) * lean);
+    pos.push(bx + px, 0, bz + pz, bx - px, 0, bz - pz, bx + Math.cos(a) * lean, hgt, bz + Math.sin(a) * lean);
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(pos), 3));
+  const n = new Float32Array(pos.length);
+  for (let i = 1; i < n.length; i += 3) n[i] = 1; // normale in sus: firele iau lumina ca solul
+  geo.setAttribute('normal', new THREE.BufferAttribute(n, 3));
   return geo;
 }
 
 export function grassMaterial(variant: 0 | 1 = 0): THREE.MeshStandardMaterial {
-  return mat('grass' + variant, variant === 0 ? 0x6e6b3f : 0x8a8650, { roughness: 0.95, metalness: 0 });
+  return mat('grass' + variant, variant === 0 ? 0x86a04e : 0xb3aa62, { roughness: 0.95, metalness: 0 });
 }
 
 export const MODEL_FACTORY = {

@@ -6,12 +6,12 @@ import { createRock, rockMaterial, ROCK_TINTS, oreCrystalGeometries, oreMaterial
 
 export const RELIEF_SCALE = 1.4;
 // paleta calma de stepa uscata — variatie pe suprafete mari, nu zgomot tile-cu-tile
-const GROUND_COOL = 0x6b6a45;
-const GROUND_WARM = 0x8b7d55;
-const GROUND_DRY = 0x8f8a5c;
-const GROUND_SOIL = 0x585340;
-const GROUND_BASE = 0x7d7650;
-const ROCK_GROUND = 0x5a564b;
+const GROUND_COOL = 0x6f8a4a;
+const GROUND_WARM = 0x9c9458;
+const GROUND_DRY = 0xb9a66a;
+const GROUND_SOIL = 0x7a6244;
+const GROUND_BASE = 0x8a9354;
+const ROCK_GROUND = 0x777268;
 
 function hash2(x: number, y: number): number {
   const s = Math.sin(x * 127.1 + y * 311.7) * 43758.5453123;
@@ -24,6 +24,49 @@ function smoothNoise(x: number, y: number, freq: number, phase: number): number 
     Math.sin(x * freq + phase) * 0.5 + Math.sin(y * freq * 1.3 - phase * 0.7) * 0.5 +
     Math.sin((x + y) * freq * 0.6 + phase * 1.6) * 0.4;
   return Math.max(0, Math.min(1, n * 0.33 + 0.5));
+}
+
+/** textura de detaliu care se repeta fara cusaturi: pete de iarba, pamant, pietricele */
+function groundDetailTexture(): THREE.Texture {
+  const size = 512;
+  const c = document.createElement('canvas');
+  c.width = c.height = size;
+  const ctx = c.getContext('2d')!;
+  const img = ctx.createImageData(size, size);
+  const lat = (ix: number, iy: number, p: number, seed: number): number => hash2((((ix % p) + p) % p) + seed * 17.3, (((iy % p) + p) % p) + seed * 5.1);
+  const vnoise = (x: number, y: number, p: number, seed: number): number => {
+    const fx = x * p, fy = y * p;
+    const ix = Math.floor(fx), iy = Math.floor(fy);
+    let tx = fx - ix, ty = fy - iy;
+    tx = tx * tx * (3 - 2 * tx); ty = ty * ty * (3 - 2 * ty);
+    const a = lat(ix, iy, p, seed), b = lat(ix + 1, iy, p, seed), d = lat(ix, iy + 1, p, seed), e = lat(ix + 1, iy + 1, p, seed);
+    return (a * (1 - tx) + b * tx) * (1 - ty) + (d * (1 - tx) + e * tx) * ty;
+  };
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const u = x / size, v = y / size;
+      const big = vnoise(u, v, 4, 1) * 0.5 + vnoise(u, v, 8, 2) * 0.3 + vnoise(u, v, 16, 3) * 0.2;
+      const fine = vnoise(u, v, 64, 4) * 0.6 + vnoise(u, v, 128, 5) * 0.4;
+      const grit = hash2(x * 1.13, y * 0.97);
+      const l = 0.74 + (big - 0.5) * 0.36 + (fine - 0.5) * 0.3 + (grit - 0.5) * 0.1;
+      // pete de pamant gol (mai calde) acolo unde zgomotul mare e jos
+      const bare = Math.max(0, Math.min(1, (0.42 - big) * 6));
+      let r = l * (1 + bare * 0.1), g = l * (1 - bare * 0.04), b = l * (1 - bare * 0.2);
+      if (grit > 0.985) { r *= 1.25; g *= 1.25; b *= 1.25; }       // pietricele deschise
+      else if (grit < 0.012) { r *= 0.7; g *= 0.7; b *= 0.7; }     // gropite
+      const i = (y * size + x) * 4;
+      img.data[i] = Math.max(0, Math.min(255, r * 255));
+      img.data[i + 1] = Math.max(0, Math.min(255, g * 255));
+      img.data[i + 2] = Math.max(0, Math.min(255, b * 255));
+      img.data[i + 3] = 255;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+  const tex = new THREE.CanvasTexture(c);
+  tex.colorSpace = THREE.SRGBColorSpace;
+  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
+  tex.anisotropy = 8;
+  return tex;
 }
 
 function softGlowTexture(): THREE.Texture {
@@ -67,6 +110,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
   const gw = w + 1, gh = h + 1;
   const positions = new Float32Array(gw * gh * 3);
   const colors = new Float32Array(gw * gh * 3);
+  const uvs = new Float32Array(gw * gh * 2);
   const cornerHeight = new Float32Array(gw * gh);
   const col = new THREE.Color();
   for (let vy = 0; vy < gh; vy++) {
@@ -77,6 +121,8 @@ export function buildTerrain(map: MapData): TerrainBuild {
       positions[i * 3 + 0] = vx;
       positions[i * 3 + 1] = hv * RELIEF_SCALE;
       positions[i * 3 + 2] = vy;
+      uvs[i * 2] = vx / 10;
+      uvs[i * 2 + 1] = vy / 10;
 
       // culoare = media tile-urilor adiacente, pe baza unui zgomot lin (pete mari, nu sare-si-piper)
       let r = 0, g = 0, b = 0, n = 0;
@@ -113,9 +159,11 @@ export function buildTerrain(map: MapData): TerrainBuild {
   const groundGeo = new THREE.BufferGeometry();
   groundGeo.setAttribute('position', new THREE.BufferAttribute(positions, 3));
   groundGeo.setAttribute('color', new THREE.BufferAttribute(colors, 3));
+  groundGeo.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
   groundGeo.setIndex(indices);
   groundGeo.computeVertexNormals();
-  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.95, metalness: 0.02 });
+  const groundTex = groundDetailTexture();
+  const groundMat = new THREE.MeshStandardMaterial({ vertexColors: true, map: groundTex, roughness: 0.96, metalness: 0 });
   const groundMesh = new THREE.Mesh(groundGeo, groundMat);
   groundMesh.receiveShadow = true;
   group.add(groundMesh);
@@ -252,8 +300,8 @@ export function buildTerrain(map: MapData): TerrainBuild {
     for (let tx = 0; tx < w; tx++) {
       const t = terrain[ty * w + tx];
       if (t !== 0) continue;
-      if (hash2(tx + 0.5, ty + 0.5) > 0.4) continue;
-      const n = 1 + Math.floor(hash2(tx, ty) * 2);
+      if (hash2(tx + 0.5, ty + 0.5) > 0.55) continue;
+      const n = 1 + Math.floor(hash2(tx, ty) * 3);
       for (let i = 0; i < n; i++) grassSpots.push({ x: tx, y: ty });
     }
   }
@@ -273,7 +321,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
       const jx = x + hash2(x, y + i * 3);
       const jy = y + hash2(x + i * 5, y);
       const hv = tileH(x, y) * RELIEF_SCALE;
-      const scale = 0.55 + hash2(x + i, y + i) * 0.6;
+      const scale = 0.7 + hash2(x + i, y + i) * 0.8;
       p.set(jx, hv, jy);
       q.setFromEuler(new THREE.Euler(0, hash2(x * 2, y * 2 + i) * Math.PI * 2, 0));
       s.set(scale, scale, scale);
@@ -343,6 +391,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
   const dispose = (): void => {
     groundGeo.dispose();
     groundMat.dispose();
+    groundTex.dispose();
     rockGeo.dispose();
     grassGeo.dispose();
     waterMat?.dispose();
