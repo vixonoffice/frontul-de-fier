@@ -172,7 +172,6 @@ export function canPlaceBuilding(world: World, team: Team, type: BuildingType, t
         if (X >= b.tx && X < b.tx + b.w && Y >= b.ty && Y < b.ty + b.h) return false;
       }
       for (const u of world.units.values()) {
-        if (u.team === team) continue;
         if (Math.floor(u.x) === X && Math.floor(u.y) === Y) return false;
       }
     }

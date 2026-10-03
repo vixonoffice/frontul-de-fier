@@ -22,6 +22,8 @@ export function initToasts(ctx: UiContext): ToastsModule {
     while (box.children.length > MAX_VISIBLE) box.firstElementChild?.remove();
   }
 
+  let lastAttackToast = -1e9;
+
   function handleEvent(e: SimEvent) {
     switch (e.type) {
       case 'unitReady':
@@ -31,7 +33,10 @@ export function initToasts(ctx: UiContext): ToastsModule {
         if (e.team === ctx.localTeam) push(`${BUILDING_INFO[e.building].name} gata — alege locul.`);
         break;
       case 'underAttack':
-        if (e.team === ctx.localTeam) push('Baza e atacată!', 'bad');
+        if (e.team === ctx.localTeam && performance.now() - lastAttackToast > 8000) {
+          lastAttackToast = performance.now();
+          push('Baza e atacată!', 'bad');
+        }
         break;
       case 'waveIncoming':
         if (e.team === ctx.localTeam) push(`Val inamic ${e.wave} se îndreaptă spre bază!`, 'bad');

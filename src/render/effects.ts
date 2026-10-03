@@ -353,6 +353,17 @@ export class EffectsSystem {
         vy: 0.6 + Math.random() * 0.4, vx: (Math.random() - 0.5) * 0.6, vz: (Math.random() - 0.5) * 0.6,
       });
     }
+    for (let i = 0; i < 6; i++) {
+      const a = Math.random() * Math.PI * 2, d = Math.random() * size * 0.5;
+      this.fire.spawn(x + Math.cos(a) * d, y + size * 0.15 + Math.random() * size * 0.3, z + Math.sin(a) * d, {
+        life: 0.35 + Math.random() * 0.4, size0: size * (0.5 + Math.random() * 0.5), size1: size * 0.15,
+        color: i % 2 ? 0xff8a2a : 0xffc24a, vy: 0.8 + Math.random() * 0.8,
+      });
+    }
+    for (let i = 0; i < 12; i++) {
+      const a = Math.random() * Math.PI * 2, v = 2.5 + Math.random() * 3;
+      this.spark.spawn(x, y + 0.2, z, { life: 0.4 + Math.random() * 0.35, size0: 0.16, size1: 0.02, color: 0xffe0a0, vx: Math.cos(a) * v, vy: 2 + Math.random() * 2.5, vz: Math.sin(a) * v });
+    }
     const debrisN = Math.round(5 + size * 4);
     for (let i = 0; i < debrisN; i++) this.debris.spawn(x, y + 0.1, z, 2.5 + size * 1.5, 0.08 + Math.random() * 0.14 * size, 1.6 + Math.random());
     this.scorch.spawn(x, 0, z, { life: 14, size0: size * 2.2, size1: size * 2.2, color: 0x0a0a0a });
@@ -366,9 +377,9 @@ export class EffectsSystem {
   private spawnShockwave(x: number, y: number, z: number, size: number): void {
     let slot = this.shockwaves.find((s) => s.life <= 0);
     if (!slot) {
-      const geo = new THREE.RingGeometry(0.6, 1, 24);
+      const geo = new THREE.RingGeometry(0.86, 1, 40);
       geo.rotateX(-Math.PI / 2);
-      const mat = new THREE.MeshBasicMaterial({ color: 0xffdca0, transparent: true, opacity: 0.8, side: THREE.DoubleSide, toneMapped: false });
+      const mat = new THREE.MeshBasicMaterial({ color: 0xffc98a, transparent: true, opacity: 0.4, side: THREE.DoubleSide, toneMapped: false, blending: THREE.AdditiveBlending, depthWrite: false });
       const mesh = new THREE.Mesh(geo, mat);
       this.group.add(mesh);
       slot = { mesh, life: 0, maxLife: 1, size: 1 };
@@ -413,9 +424,9 @@ export class EffectsSystem {
       if (s.life <= 0) { s.mesh.visible = false; continue; }
       s.life -= dt;
       const t = 1 - s.life / s.maxLife;
-      const r = s.size * (0.5 + t * 3);
+      const r = s.size * (0.4 + t * 1.9);
       s.mesh.scale.set(r, 1, r);
-      (s.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - t) * 0.8);
+      (s.mesh.material as THREE.MeshBasicMaterial).opacity = Math.max(0, (1 - t) * (1 - t) * 0.4);
       if (s.life <= 0) s.mesh.visible = false;
     }
   }

@@ -139,6 +139,8 @@ export function initBuildPanel(ctx: UiContext): UiModule {
     unitCards.set(type, card);
   }
 
+  let wasReady = false;
+
   function hasFactory(): boolean {
     for (const b of ctx.world.buildings.values()) {
       if (b.team === ctx.localTeam && b.type === 'factory') return true;
@@ -163,6 +165,9 @@ export function initBuildPanel(ctx: UiContext): UiModule {
     barFill.style.background = frac > 0.55 ? 'var(--amber)' : frac > 0.28 ? 'var(--amber)' : 'var(--red)';
 
     const slot = player.production.building;
+    const readyNow = !!(slot && slot.ready);
+    if (readyNow && !wasReady && slot && !ctx.isTouch) ctx.startPlacing(slot.type);
+    wasReady = readyNow;
     for (const [type, card] of buildingCards) {
       const info = BUILDING_INFO[type];
       const mine = slot && slot.type === type;

@@ -70,6 +70,45 @@ function glassMat(): THREE.MeshStandardMaterial {
   return mat('glass', 0x101418, { roughness: 0.2, metalness: 0.8, emissive: 0x335577, emissiveIntensity: 0.3 });
 }
 
+function box(w: number, h: number, d: number, m: THREE.Material, x = 0, y = 0, z = 0): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), m);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+function cyl(rTop: number, rBot: number, h: number, m: THREE.Material, x = 0, y = 0, z = 0, seg = 12): THREE.Mesh {
+  const mesh = new THREE.Mesh(new THREE.CylinderGeometry(rTop, rBot, h, seg), m);
+  mesh.position.set(x, y, z);
+  return mesh;
+}
+function lampMat(): THREE.MeshStandardMaterial {
+  return mat('lamp', 0xfff2c8, { emissive: 0xffe9b0, emissiveIntensity: 2.2, roughness: 0.3, metalness: 0 });
+}
+function hazardMat(): THREE.MeshStandardMaterial {
+  return mat('hazard', 0xf2b632, { roughness: 0.6, metalness: 0.15 });
+}
+function padMat(): THREE.MeshStandardMaterial {
+  return mat('pad', 0x5d5a52, { roughness: 0.95, metalness: 0.02 });
+}
+/** platforma de beton pe care sta o cladire, cu margine si dungi de avertizare la colturi */
+function foundation(w: number, d: number): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(w, 0.1, d, padMat(), 0, 0.02, 0));
+  g.add(box(w - 0.24, 0.04, d - 0.24, concreteDarkMat(), 0, 0.085, 0));
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) {
+    g.add(box(0.34, 0.03, 0.1, hazardMat(), sx * (w / 2 - 0.25), 0.11, sz * (d / 2 - 0.1)));
+    g.add(box(0.1, 0.03, 0.34, hazardMat(), sx * (w / 2 - 0.1), 0.11, sz * (d / 2 - 0.25)));
+  }
+  return g;
+}
+/** catarg cu steag in culoarea echipei */
+function flag(team: Team, x: number, y: number, z: number, h = 1.3): THREE.Group {
+  const g = new THREE.Group();
+  g.add(cyl(0.025, 0.03, h, darkMetal(), 0, h / 2, 0, 6));
+  g.add(box(0.5, 0.3, 0.02, teamMat(team), 0.27, h - 0.18, 0));
+  g.position.set(x, y, z);
+  return g;
+}
+
 function enableShadows(obj: THREE.Object3D): void {
   obj.traverse((c) => {
     if (c instanceof THREE.Mesh) {
@@ -81,16 +120,30 @@ function enableShadows(obj: THREE.Object3D): void {
 
 function track(x: number, len: number, teamColor: number): THREE.Group {
   const g = new THREE.Group();
-  const body = new THREE.Mesh(new RoundedBoxGeometry(0.22, 0.2, len, 2, 0.05), trackMat());
-  body.position.set(x, 0, 0);
+  const body = new THREE.Mesh(new RoundedBoxGeometry(0.24, 0.2, len - 0.18, 2, 0.05), trackMat());
+  body.position.set(x, 0.02, 0);
   g.add(body);
-  const wheelGeo = new THREE.CylinderGeometry(0.11, 0.11, 0.24, 10);
-  const wheelMatI = darkMetal();
-  const nWheels = Math.max(3, Math.round(len * 1.6));
+  // capete rotunjite (roata motoare / de intindere)
+  for (const s of [-1, 1]) {
+    const end = new THREE.Mesh(new THREE.CylinderGeometry(0.12, 0.12, 0.24, 12), trackMat());
+    end.rotation.z = Math.PI / 2;
+    end.position.set(x, 0.02, s * (len / 2 - 0.12));
+    g.add(end);
+  }
+  // zale: nervuri transversale pe partea de sus a senilei
+  const linkGeo = new THREE.BoxGeometry(0.26, 0.025, 0.05);
+  const nLinks = Math.round(len / 0.14);
+  for (let i = 0; i < nLinks; i++) {
+    const l = new THREE.Mesh(linkGeo, darkMetal());
+    l.position.set(x, 0.125, -len / 2 + 0.16 + (i * (len - 0.32)) / Math.max(1, nLinks - 1));
+    g.add(l);
+  }
+  const wheelGeo = new THREE.CylinderGeometry(0.085, 0.085, 0.27, 10);
+  const nWheels = Math.max(3, Math.round(len * 2.2));
   for (let i = 0; i < nWheels; i++) {
-    const w = new THREE.Mesh(wheelGeo, wheelMatI);
-    w.rotation.x = Math.PI / 2;
-    w.position.set(x, -0.02, -len / 2 + 0.25 + (i * (len - 0.5)) / Math.max(1, nWheels - 1));
+    const w = new THREE.Mesh(wheelGeo, darkMetal());
+    w.rotation.z = Math.PI / 2;
+    w.position.set(x, -0.01, -len / 2 + 0.22 + (i * (len - 0.44)) / Math.max(1, nWheels - 1));
     g.add(w);
   }
   void teamColor;
@@ -146,6 +199,32 @@ export function createTank(team: Team): THREE.Group {
   muzzle.position.z = 1.15;
   barrelPivot.add(muzzle);
 
+  // frana de gura, manta, trapa, mitraliera
+  const brake = cyl(0.085, 0.085, 0.16, darkMetal(), 0, 0, 1.08, 10);
+  brake.rotation.x = Math.PI / 2;
+  barrelPivot.add(brake);
+  const sleeve = cyl(0.08, 0.09, 0.3, bevelMat(team), 0, 0, 0.3, 10);
+  sleeve.rotation.x = Math.PI / 2;
+  barrelPivot.add(sleeve);
+  barrelPivot.add(box(0.3, 0.2, 0.14, darkMetal(), 0, 0, 0.26));
+  turretPivot.add(cyl(0.11, 0.12, 0.06, darkMetal(), -0.14, 0.36, -0.12, 10));
+  turretPivot.add(box(0.2, 0.14, 0.22, hullMat(team), 0, 0.14, -0.42)); // cos spate turela
+  const ant = cyl(0.008, 0.012, 0.7, darkMetal(), 0.22, 0.65, -0.25, 4);
+  turretPivot.add(ant);
+  // caroserie: glacis frontal inclinat, punte motor, esapamente, faruri
+  const glacis = box(0.9, 0.05, 0.42, bevelMat(team), 0, 0.37, 0.52);
+  glacis.rotation.x = 0.42;
+  g.add(glacis);
+  g.add(box(0.62, 0.07, 0.36, darkMetal(), 0, 0.45, -0.46));
+  for (let k = -1; k <= 1; k++) g.add(box(0.5, 0.02, 0.04, bevelMat(team), 0, 0.495, -0.46 + k * 0.1));
+  for (const side of [-1, 1]) {
+    const ex = cyl(0.04, 0.04, 0.3, darkMetal(), side * 0.36, 0.42, -0.66, 8);
+    ex.rotation.x = Math.PI / 2;
+    g.add(ex);
+    g.add(box(0.1, 0.07, 0.04, lampMat(), side * 0.33, 0.33, 0.67));
+    g.add(box(0.26, 0.03, 1.46, hullMat(team), side * 0.52, 0.16, 0)); // aripi peste senile
+  }
+
   g.userData.turret = turretPivot;
   g.userData.barrel = barrelPivot;
   g.userData.muzzle = muzzle;
@@ -197,6 +276,16 @@ export function createRocket(team: Team): THREE.Group {
   muzzle.position.set(0, 0.32, 0.5);
   podPivot.add(muzzle);
 
+  // cabina in fata, cu parbriz; picioare de sprijin; faruri
+  g.add(new THREE.Mesh(new RoundedBoxGeometry(0.7, 0.26, 0.34, 2, 0.05), hullMat(team)).translateY(0.5).translateZ(0.42));
+  g.add(box(0.6, 0.12, 0.03, glassMat(), 0, 0.53, 0.6));
+  g.add(box(0.72, 0.03, 0.36, teamMat(team), 0, 0.64, 0.42));
+  for (const side of [-1, 1]) {
+    g.add(box(0.1, 0.06, 0.04, lampMat(), side * 0.28, 0.32, 0.62));
+    g.add(box(0.24, 0.03, 1.36, hullMat(team), side * 0.45, 0.16, 0));
+    podPivot.add(box(0.05, 0.3, 0.6, bevelMat(team), side * 0.31, 0.2, 0));
+  }
+
   g.userData.turret = podPivot;
   g.userData.barrel = podPivot;
   g.userData.muzzle = muzzle;
@@ -241,6 +330,21 @@ export function createHarvester(team: Team): THREE.Group {
   oreFill.scale.y = 0.01;
   oreFill.visible = false;
   g.add(oreFill);
+
+  // lama de colectare in fata, cu dungi de avertizare; girofar; faruri
+  const scoop = box(1.25, 0.24, 0.16, darkMetal(), 0, 0.2, -0.86);
+  scoop.rotation.x = -0.35;
+  g.add(scoop);
+  for (let k = -2; k <= 2; k++) g.add(box(0.12, 0.25, 0.02, hazardMat(), k * 0.25, 0.2, -0.95).rotateX(-0.35));
+  for (const side of [-1, 1]) {
+    g.add(box(0.06, 0.12, 0.3, darkMetal(), side * 0.5, 0.3, -0.72));
+    g.add(box(0.12, 0.07, 0.04, lampMat(), side * 0.2, 0.52, -0.71));
+    g.add(box(0.3, 0.03, 1.66, hullMat(team), side * 0.6, 0.17, 0));
+    g.add(box(0.04, 0.54, 0.79, hazardMat(), side * 0.46, 0.62, 0.3));
+  }
+  g.add(cyl(0.06, 0.06, 0.08, mat('beacon', 0xffa726, { emissive: 0xff9a1a, emissiveIntensity: 2.4 }), 0.18, 0.86, -0.5, 8));
+  g.add(box(0.94, 0.05, 0.05, bevelMat(team), 0, 0.88, 0.66));
+  g.add(box(0.94, 0.05, 0.05, bevelMat(team), 0, 0.88, -0.06));
 
   g.userData.hopper = oreFill;
   g.userData.hopperBaseY = HARVESTER_HOPPER_BOTTOM;
@@ -298,6 +402,21 @@ export function createHQ(team: Team): THREE.Group {
   light.position.set(-0.6, 2.76, 0.6);
   g.add(light);
 
+  g.add(foundation(3.0, 3.0));
+  // stalpi de colt, usa, scari, aparate pe acoperis, steag
+  for (const sx of [-1, 1]) for (const sz of [-1, 1]) g.add(box(0.22, 1.18, 0.22, concreteDarkMat(), sx * 1.24, 0.59, sz * 1.24));
+  g.add(box(0.5, 0.62, 0.05, darkMetal(), 0, 0.42, 1.32));
+  g.add(box(0.56, 0.04, 0.08, teamMat(team), 0, 0.75, 1.33));
+  g.add(box(0.8, 0.08, 0.3, concreteDarkMat(), 0, 0.14, 1.45));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.04, 0.3, 0.9, windowMat(), sx * 1.31, 0.6, 0.3));
+    g.add(box(0.4, 0.2, 0.4, darkMetal(), sx * 0.95, 1.22, -0.9));
+    g.add(cyl(0.13, 0.13, 0.03, accentMat(), sx * 0.95, 1.33, -0.9, 10));
+  }
+  g.add(box(1.0, 0.04, 1.0, hazardMat(), 0.0, 1.76, 0.0)); // platforma pe buncar
+  g.add(box(0.9, 0.05, 0.9, concreteDarkMat(), 0.0, 1.77, 0.0));
+  g.add(flag(team, 1.05, 1.12, 1.05, 1.5));
+
   g.userData.dish = dishPivot;
   g.userData.blinkLight = light;
   g.userData.footprint = { w: 3, h: 3 };
@@ -344,6 +463,23 @@ export function createRefinery(team: Team): THREE.Group {
   conveyorTrim.rotation.y = conveyor.rotation.y;
   g.add(conveyorTrim);
 
+  g.add(foundation(3.0, 3.0));
+  // conducta intre silozuri, cos de ardere cu flacara, hala mica de procesare, scara
+  const pipe = cyl(0.07, 0.07, 1.7, accentMat(), 0, 1.15, -0.5, 8);
+  pipe.rotation.z = Math.PI / 2;
+  g.add(pipe);
+  const pipe2 = cyl(0.05, 0.05, 1.1, accentMat(), -0.85, 0.55, 0.05, 8);
+  pipe2.rotation.x = Math.PI / 2;
+  g.add(pipe2);
+  g.add(cyl(0.09, 0.13, 2.2, concreteDarkMat(), 0, 1.15, -1.05, 10));
+  g.add(cyl(0.11, 0.11, 0.1, hazardMat(), 0, 2.1, -1.05, 10));
+  g.add(cyl(0.02, 0.09, 0.22, mat('flare', 0xffb040, { emissive: 0xff8a20, emissiveIntensity: 3 }), 0, 2.36, -1.05, 8));
+  g.add(new THREE.Mesh(new RoundedBoxGeometry(0.9, 0.6, 0.7, 2, 0.05), concreteMat()).translateX(-0.85).translateY(0.4).translateZ(0.75));
+  g.add(box(0.92, 0.07, 0.72, teamMat(team), -0.85, 0.72, 0.75));
+  g.add(box(0.5, 0.2, 0.03, windowMat(), -0.85, 0.45, 1.11));
+  for (const sx of [-0.85, 0.85]) for (let k = 0; k < 5; k++) g.add(box(0.2, 0.02, 0.03, darkMetal(), sx, 0.35 + k * 0.24, -0.07));
+  g.add(flag(team, 1.25, 0.1, -1.25, 1.6));
+
   g.userData.footprint = { w: 3, h: 3 };
   g.userData.dockPoint = new THREE.Vector3(0.9, 0.09, 0.9);
   g.userData.riseHeight = 2.2;
@@ -359,14 +495,17 @@ export function createFactory(team: Team): THREE.Group {
   const roof = new THREE.Mesh(new THREE.CylinderGeometry(1.5, 1.5, 2.6, 10, 1, true, 0, Math.PI), concreteDarkMat());
   roof.rotation.z = Math.PI / 2;
   roof.rotation.y = Math.PI / 2;
-  roof.position.y = 1.4;
-  g.add(roof);
+  const arch = new THREE.Group();
+  arch.position.y = 1.4;
+  arch.scale.y = 0.42;
+  g.add(arch);
+  arch.add(roof);
   // ribs vizibile pe acoperis
   for (let i = -1; i <= 1; i++) {
     const rib = new THREE.Mesh(new THREE.TorusGeometry(1.52, 0.03, 5, 10, Math.PI), accentMat());
     rib.rotation.y = Math.PI / 2;
-    rib.position.set(0, 1.4, i * 0.8);
-    g.add(rib);
+    rib.position.set(0, 0, i * 0.8);
+    arch.add(rib);
   }
   const stripe = new THREE.Mesh(new THREE.BoxGeometry(3.02, 0.25, 2.62), teamMat(team));
   stripe.position.y = 0.3;
@@ -387,6 +526,19 @@ export function createFactory(team: Team): THREE.Group {
   const doorFrame = new THREE.Mesh(new THREE.BoxGeometry(2.46, 1.36, 0.06), teamMat(team));
   doorFrame.position.set(0, -0.65, -0.03);
   doorPivot.add(doorFrame);
+
+  g.add(foundation(3.0, 3.0).translateZ(0.05));
+  // cosuri de fum, luminatoare pe acoperis, proiectoare la poarta, benzi de avertizare
+  for (const sx of [-1, 1]) {
+    g.add(cyl(0.11, 0.14, 1.3, concreteDarkMat(), sx * 1.15, 1.9, -0.95, 10));
+    g.add(cyl(0.13, 0.13, 0.1, hazardMat(), sx * 1.15, 2.5, -0.95, 10));
+    g.add(box(0.14, 1.34, 0.14, hazardMat(), sx * 1.3, 0.68, 1.32));
+    g.add(box(0.12, 0.08, 0.08, lampMat(), sx * 1.05, 1.5, 1.34));
+    g.add(box(0.04, 0.3, 1.4, windowMat(), sx * 1.51, 0.85, 0));
+  }
+  for (let k = -1; k <= 1; k += 2) g.add(box(0.5, 0.05, 0.7, glassMat(), 0, 2.04, k * 0.45));
+  g.add(box(2.3, 0.03, 0.5, hazardMat(), 0, 0.12, 1.2));
+  g.add(flag(team, -1.38, 0.1, -1.38, 2.3));
 
   g.userData.bayDoor = doorPivot;
   g.userData.footprint = { w: 3, h: 3 };
@@ -423,6 +575,23 @@ export function createTurret(team: Team): THREE.Group {
   const muzzle = new THREE.Object3D();
   muzzle.position.z = 1.0;
   barrelPivot.add(muzzle);
+
+  // soclu hexagonal cu saci de nisip, a doua teava, proiector
+  g.add(cyl(0.72, 0.78, 0.14, padMat(), 0, 0.07, 0, 6));
+  for (let k = 0; k < 6; k++) {
+    const a = (k / 6) * Math.PI * 2 + Math.PI / 6;
+    const bag = new THREE.Mesh(new RoundedBoxGeometry(0.34, 0.14, 0.18, 2, 0.05), mat('sandbag', 0xa8966a, { roughness: 1, metalness: 0 }));
+    bag.position.set(Math.cos(a) * 0.62, 0.2, Math.sin(a) * 0.62);
+    bag.rotation.y = -a + Math.PI / 2;
+    g.add(bag);
+  }
+  barrel.position.x = -0.09;
+  const barrel2 = barrel.clone();
+  barrel2.position.x = 0.09;
+  barrelPivot.add(barrel2);
+  barrelPivot.add(box(0.36, 0.2, 0.16, darkMetal(), 0, 0, 0.22));
+  gunPivot.add(box(0.2, 0.06, 0.2, teamMat(team), 0, 0.37, -0.08));
+  gunPivot.add(box(0.08, 0.08, 0.05, lampMat(), 0.2, 0.3, 0.25));
 
   g.userData.turret = gunPivot;
   g.userData.barrel = barrelPivot;

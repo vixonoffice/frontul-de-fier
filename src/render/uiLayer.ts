@@ -8,7 +8,8 @@ import { cameraDirConstant } from './camera';
 import { MODEL_FACTORY, TEAM_COLORS } from './models';
 
 function billboardQuat(): THREE.Quaternion {
-  return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), cameraDirConstant());
+  const m = new THREE.Matrix4().lookAt(cameraDirConstant(), new THREE.Vector3(), new THREE.Vector3(0, 1, 0));
+  return new THREE.Quaternion().setFromRotationMatrix(m);
 }
 function flatQuat(): THREE.Quaternion {
   return new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(0, 1, 0));

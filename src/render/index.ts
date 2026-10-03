@@ -287,8 +287,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         const hopper = obj.userData.hopper as THREE.Mesh | undefined;
         if (hopper) {
           const base = (obj.userData.hopperBaseY as number) ?? 0.37;
-          const h = 0.08 + rec.carry * 0.42;
-          hopper.visible = rec.carry > 0.02;
+          const fill = Math.max(0, Math.min(1, rec.carry / 300));
+          const h = 0.08 + fill * 0.42;
+          hopper.visible = fill > 0.02;
           hopper.scale.y = Math.max(0.05, h / 0.1);
           hopper.position.y = base + h / 2;
         }

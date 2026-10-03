@@ -412,8 +412,9 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     if (ctx.placing && hover) {
       const wp = ctx.renderer.pick(hover.x, hover.y).world;
       if (wp) {
-        const tx = clamp(Math.floor(wp.x), 0, ctx.world.map.w - 1);
-        const ty = clamp(Math.floor(wp.y), 0, ctx.world.map.h - 1);
+        const half = ctx.placing === 'turret' ? 0 : 1; // cladirile 3x3 se centreaza pe cursor
+        const tx = clamp(Math.floor(wp.x) - half, 0, ctx.world.map.w - 1);
+        const ty = clamp(Math.floor(wp.y) - half, 0, ctx.world.map.h - 1);
         ghostTile = { tx, ty };
         const valid = ctx.sim.canPlace(ctx.world, ctx.localTeam, ctx.placing, tx, ty);
         ctx.renderer.setGhost({ type: ctx.placing, tx, ty, valid });
