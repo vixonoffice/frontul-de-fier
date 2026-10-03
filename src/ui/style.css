@@ -426,7 +426,7 @@ button {
 .stat-grid .st .k { font-size: 10px; color: var(--mut); letter-spacing: .08em; text-transform: uppercase; }
 
 /* ---------- responsive: desktop (sidebar) vs mobil (sertar) ---------- */
-@media (min-width: 701px) {
+@media (min-width: 701px) and (min-height: 501px) {
   #stage { right: var(--sidebar-w); }
   #minimapPanel { top: var(--topbar-h); right: 0; width: var(--sidebar-w); height: var(--minimap-h); border-left: 1px solid var(--line); }
   #buildPanel { top: calc(var(--topbar-h) + var(--minimap-h)); right: 0; bottom: 0; width: var(--sidebar-w); border-left: 1px solid var(--line); }
@@ -435,7 +435,7 @@ button {
   #mobileToolbar { display: none !important; }
 }
 
-@media (max-width: 700px) {
+@media (max-width: 700px), (max-height: 500px) {
   :root { --sidebar-w: 0px; }
   #minimapPanel { top: calc(var(--topbar-h) + 8px); right: 8px; width: var(--mini-float-w); height: var(--mini-float-h); border-radius: 6px; box-shadow: 0 3px 10px rgba(0,0,0,.5); }
   #minimapPanel .mm-head { display: none; }
@@ -461,4 +461,10 @@ button {
 
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
+}
+
+/* telefon ținut pe lat: sertar mai scund, ca să rămână loc pentru hartă */
+@media (max-height: 500px) {
+  :root { --drawer-h: 128px; --mini-float-w: 120px; --mini-float-h: 92px; }
+  #tb-army, #tb-wave .tb-label-long { display: inline; }
 }

@@ -33,7 +33,8 @@ export function initScreens(ctx: UiContext): UiModule {
   helpMouse.innerHTML = `
     <li>Click stânga selectezi o unitate sau tragi un chenar peste mai multe.</li>
     <li>Click dreapta dă ordinul potrivit: atac pe inamic, recoltare pe minereu, mișcare pe teren liber.</li>
-    <li>Construiește o Fabrică, apoi tancuri, din panoul din dreapta.</li>
+    <li>Construiește din panoul din dreapta: alegi clădirea, iar când e gata dai click pe hartă unde s-o pui. Fabrica face tancuri.</li>
+    <li>Rotița mouse-ului apropie harta; marginile ecranului sau săgețile o mișcă.</li>
     <li>Câștigi când distrugi toate clădirile inamicului.</li>
   `;
   const helpTouch = el('ol', { parent: startCard });

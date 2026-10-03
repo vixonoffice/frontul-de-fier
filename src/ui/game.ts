@@ -12,6 +12,7 @@ import { initMobileToolbar } from './mobileToolbar';
 import { initInput } from './input';
 import { initScreens } from './screens';
 import { initToasts } from './toasts';
+import { initAudio } from './audio';
 
 export interface GameHandle {
   pause(): void;
@@ -138,6 +139,7 @@ export function startGame(opts: StartGameOptions): GameHandle {
     initMobileToolbar(ctx),
     initInput(ctx, canvas),
     initScreens(ctx),
+    initAudio(ctx),
   ];
 
   function pruneDeadSelection() {

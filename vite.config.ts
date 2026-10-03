@@ -1,2 +1,5 @@
 import { defineConfig } from 'vite';
-export default defineConfig({ base: './', test: { globals: true } } as never);
+import { viteSingleFile } from 'vite-plugin-singlefile';
+
+// build-ul iese ca un singur index.html (JS + CSS inline), usor de publicat oriunde
+export default defineConfig({ base: './', plugins: [viteSingleFile()], build: { chunkSizeWarningLimit: 4000 }, test: { globals: true } } as never);
