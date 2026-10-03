@@ -1,0 +1,164 @@
+<!doctype html>
+<html lang="ro">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Frontul de Fier — render dev</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #0d0f0a; overflow: hidden; }
+  #c { display: block; width: 100%; height: 100%; cursor: crosshair; }
+  #hud {
+    position: absolute; left: 8px; top: 8px; color: #e9e5d2; font: 12px ui-monospace, monospace;
+    background: rgba(13,15,10,.7); padding: 6px 10px; border: 1px solid #343a29; line-height: 1.5;
+    pointer-events: none; white-space: pre;
+  }
+  #box {
+    position: absolute; border: 1px solid #7bd88f; background: rgba(123,216,143,0.15);
+    display: none; pointer-events: none;
+  }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="hud">FPS: --</div>
+<div id="box"></div>
+<script type="module">
+import { createRenderer } from './src/render/index.ts';
+import { createFixtureWorld, createFixtureAnimator } from './src/render/fixture.ts';
+import { TICK_RATE } from './src/sim/types.ts';
+
+const canvas = document.getElementById('c');
+const hud = document.getElementById('hud');
+const boxEl = document.getElementById('box');
+
+const world = createFixtureWorld();
+const stepFixture = createFixtureAnimator(world);
+// incalzire: avanseaza lupta cateva secunde ca scena sa nu porneasca goala
+// (util mai ales pentru capturi automate, unde bucla reala de rAF poate fi incetinita).
+for (let i = 0; i < 160; i++) stepFixture(1 / TICK_RATE);
+
+const renderer = createRenderer(canvas);
+renderer.setLocalTeam(0);
+
+let selection = [];
+let localTeam = 0;
+
+function resize() {
+  const w = window.innerWidth, h = window.innerHeight;
+  canvas.width = w; canvas.height = h;
+  renderer.resize(w, h, window.devicePixelRatio || 1);
+}
+window.addEventListener('resize', resize);
+resize();
+
+renderer.render(world, 0, 0);
+renderer.centerOn({ x: 17, y: 16 });
+
+// --- input: pan (drag dreapta sau WASD), zoom (rotita), selectie (click/dreag stanga) ---
+let dragging = null; // {x,y, kind: 'pan'|'box'}
+let boxStart = null;
+
+canvas.addEventListener('contextmenu', (e) => e.preventDefault());
+
+canvas.addEventListener('mousedown', (e) => {
+  if (e.button === 2) {
+    dragging = { x: e.clientX, y: e.clientY, kind: 'pan' };
+  } else if (e.button === 0) {
+    boxStart = { x: e.clientX, y: e.clientY };
+    dragging = { x: e.clientX, y: e.clientY, kind: 'box' };
+  }
+});
+window.addEventListener('mousemove', (e) => {
+  if (!dragging) return;
+  if (dragging.kind === 'pan') {
+    renderer.panBy(-(e.clientX - dragging.x), -(e.clientY - dragging.y));
+    dragging.x = e.clientX; dragging.y = e.clientY;
+  } else if (dragging.kind === 'box' && boxStart) {
+    const x0 = Math.min(boxStart.x, e.clientX), x1 = Math.max(boxStart.x, e.clientX);
+    const y0 = Math.min(boxStart.y, e.clientY), y1 = Math.max(boxStart.y, e.clientY);
+    if (x1 - x0 > 4 || y1 - y0 > 4) {
+      boxEl.style.display = 'block';
+      boxEl.style.left = x0 + 'px'; boxEl.style.top = y0 + 'px';
+      boxEl.style.width = (x1 - x0) + 'px'; boxEl.style.height = (y1 - y0) + 'px';
+    }
+  }
+});
+window.addEventListener('mouseup', (e) => {
+  if (dragging && dragging.kind === 'box' && boxStart) {
+    const dx = Math.abs(e.clientX - boxStart.x), dy = Math.abs(e.clientY - boxStart.y);
+    if (dx < 4 && dy < 4) {
+      const r = renderer.pick(e.clientX, e.clientY);
+      selection = r.entityId !== null ? [r.entityId] : [];
+    } else {
+      selection = renderer.pickBox(boxStart.x, boxStart.y, e.clientX, e.clientY, localTeam);
+    }
+    renderer.setSelection(selection);
+    boxEl.style.display = 'none';
+  }
+  dragging = null; boxStart = null;
+});
+canvas.addEventListener('wheel', (e) => {
+  e.preventDefault();
+  const factor = e.deltaY < 0 ? 1.12 : 1 / 1.12;
+  renderer.zoomBy(factor, e.clientX, e.clientY);
+}, { passive: false });
+canvas.addEventListener('click', (e) => {
+  if (e.shiftKey) {
+    const r = renderer.pick(e.clientX, e.clientY);
+    if (r.world) renderer.pulse(r.world, 'attack');
+  }
+});
+
+window.addEventListener('keydown', (e) => {
+  const panSpeed = 30;
+  if (e.key === 'ArrowLeft') renderer.panBy(-panSpeed, 0);
+  if (e.key === 'ArrowRight') renderer.panBy(panSpeed, 0);
+  if (e.key === 'ArrowUp') renderer.panBy(0, -panSpeed);
+  if (e.key === 'ArrowDown') renderer.panBy(0, panSpeed);
+  if (e.key === 't' || e.key === 'T') {
+    localTeam = localTeam === 0 ? 1 : 0;
+    renderer.setLocalTeam(localTeam);
+  }
+});
+
+// benchmark sincron (?bench=1): masoara costul real per cadru, fara sa depinda de rAF
+// (util cand bucla de rAF e incetinita de throttling-ul taburilor de fundal in medii automate).
+if (new URLSearchParams(location.search).has('bench')) {
+  const N = 300;
+  const t0 = performance.now();
+  for (let i = 0; i < N; i++) {
+    stepFixture(1 / TICK_RATE);
+    renderer.render(world, (i % 5) / 5, 1 / 60);
+  }
+  const ms = performance.now() - t0;
+  const avg = ms / N;
+  console.log(`BENCH frames=${N} totalMs=${ms.toFixed(1)} avgMs=${avg.toFixed(3)} estFPS=${(1000 / avg).toFixed(1)}`);
+  hud.textContent = `BENCH avgMs=${avg.toFixed(3)} estFPS=${(1000 / avg).toFixed(1)}`;
+}
+
+// --- bucla fixa de "simulare" (fixture) + randare interpolata ---
+const tickDur = 1 / TICK_RATE;
+let acc = 0;
+let last = performance.now();
+let fpsAcc = 0, fpsN = 0, fpsShown = 0;
+
+function frame(now) {
+  requestAnimationFrame(frame);
+  const dt = Math.min(0.05, (now - last) / 1000);
+  last = now;
+  acc += dt;
+  while (acc >= tickDur) {
+    stepFixture(tickDur);
+    acc -= tickDur;
+  }
+  const alpha = acc / tickDur;
+  renderer.render(world, alpha, dt);
+
+  fpsAcc += dt; fpsN++;
+  if (fpsAcc > 0.5) { fpsShown = Math.round(fpsN / fpsAcc); fpsAcc = 0; fpsN = 0; }
+  hud.textContent = `FPS: ${fpsShown}  tick: ${world.tick}  units: ${world.units.size}  team local: ${localTeam}  sel: ${selection.length}\nclick=select  drag-dreapta=pan  rotita=zoom  sageti=pan  T=schimba echipa  shift+click=pulse atac`;
+}
+requestAnimationFrame(frame);
+</script>
+</body>
+</html>
