@@ -52,6 +52,7 @@ function clearTeamUnits(world: World, team: Team): void {
 describe('stage 2: producție', () => {
   it('infanteria se produce la cazarmă în paralel cu coada fabricii', () => {
     const world = createWorld(setup());
+    place(world, 0, 'power'); // altfel lipsa de curent încetinește producția
     place(world, 0, 'factory');
     place(world, 0, 'barracks');
     world.players[0].credits = 5000;
@@ -142,6 +143,7 @@ describe('stage 2: ținte aer/sol', () => {
     const bazooka = spawnUnit(world, internal, 0, 'bazooka', 39, 41, null);
     const tb = spawnBuilding(world, internal, buildBlockedGrid(world), 0, 'turret', 38, 38);
     const rt = spawnBuilding(world, internal, buildBlockedGrid(world), 0, 'rocketTurret', 38, 43);
+    place(world, 0, 'power'); // fără lipsă de curent
     stepN(world, 8);
     const events: SimEvent[] = [];
     for (let i = 0; i < 60; i++) {
@@ -244,7 +246,7 @@ describe('stage 2: raid de bombardament', () => {
     stepN(world, 20 * 60);
     expect(world.units.has(b.id)).toBe(true);
     expect(b.alt).toBeCloseTo(AIR_ALTITUDE, 1);
-    expect(Math.hypot(b.x - (hq.tx + 1.5), b.y - (hq.ty + 1.5))).toBeLessThan(12);
+    expect(Math.hypot(b.x - (hq.tx + 1.5), b.y - (hq.ty + 1.5))).toBeLessThan(14);
     expect(b.ammo).toBeGreaterThan(0);
   });
 

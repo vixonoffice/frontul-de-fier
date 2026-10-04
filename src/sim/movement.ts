@@ -45,7 +45,7 @@ function nextSteerTarget(world: World, internal: Internal, blocked: Uint8Array, 
   if (nav.flow) {
     const dest = destinationOf(unit);
     if (dest) {
-      const dd = Math.hypot(unit.x - dest.x, unit.y - dest.y);
+      const dd = dist(unit.x - dest.x, unit.y - dest.y);
       if (dd <= 3) {
         // suficient de aproape: comută la A* individual pentru precizie la sosire în formație
         nav.flow = null;

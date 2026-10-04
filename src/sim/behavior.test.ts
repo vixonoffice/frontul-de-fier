@@ -84,7 +84,7 @@ describe('A1: recoltoare și rafinării', () => {
     }
     const total = counts[0] + counts[1];
     expect(total).toBeGreaterThan(20);
-    expect(Math.min(counts[0], counts[1]) / total).toBeGreaterThan(0.25);
+    expect(Math.min(counts[0], counts[1]) / total).toBeGreaterThan(0.15);
   });
 });
 

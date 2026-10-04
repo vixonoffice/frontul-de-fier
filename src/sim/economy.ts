@@ -1,7 +1,7 @@
 // Recoltare (mașină de stări pe recoltor) și producție (clădiri + coadă de unități).
 import type { Building, BuildingType, Player, ProducerType, Team, Unit, UnitType, Vec, World } from './types';
 import { TERRAIN_GROUND } from './types';
-import { UNITS, STARTING_CREDITS, MAX_QUEUE, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
+import { UNITS, STARTING_CREDITS, LOW_POWER_FACTOR, MAX_QUEUE, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
 import { BUILDINGS, MAX_BUILD_DISTANCE, SELL_REFUND } from '../data/buildings';
 import type { Internal } from './internal';
 import { getHarvestState } from './internal';
@@ -505,9 +505,11 @@ export function handleRally(world: World, team: Team, x: number, y: number): voi
   world.players[team].production.rally = { x, y };
 }
 
-export function updateProduction(world: World, internal: Internal, blocked: Uint8Array, dt: number): void {
+export function updateProduction(world: World, internal: Internal, blocked: Uint8Array, dtBase: number): void {
   for (const p of world.players) {
     if (p.defeated) continue;
+    // lipsa de curent: construcția și producția merg la LOW_POWER_FACTOR din viteză
+    const dt = internal.lowPower.get(p.team) ? dtBase * LOW_POWER_FACTOR : dtBase;
     const slot = p.production.building;
     if (slot && !slot.ready) {
       slot.progress += dt / BUILDINGS[slot.type].buildTime;

@@ -138,6 +138,7 @@ function releaseBomb(world: World, internal: Internal, u: Unit): void {
     targetId: 0, tx: u.x, ty: u.y, z: u.alt,
   });
   internal.projectileWeapon.set(id, weapon);
+  internal.projectileSource.set(id, u.id);
   u.lastFireTick = world.tick;
   world.events.push({ type: 'fire', sourceId: u.id, x: u.x, y: u.y, angle: u.angle, weapon: 'bomb' });
 }

@@ -12,12 +12,13 @@ import {
   handleRally, handleSell, handleTrain, handleTrainCancel, spawnBuilding, spawnUnit,
   updateHarvester, updateProduction, commandHarvest, updateDocks,
 } from './economy';
-import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
+import { canWeaponTarget, destroyEntity, findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
 import { findPath } from './path';
 import { issueMoveOrder, stepMovement } from './movement';
 import { runAI } from './ai';
 import { runAssist } from './assist';
 import { updateGuards } from './guard';
+import { handleRepair, updatePower, updateRepairs, updateVeterancy } from './upkeep';
 import { commandAir, isAir, updateAllBombers } from './air';
 import { UNITS } from '../data/units';
 import { center, sortedBuildingIds, sortedUnitIds } from './entities';
@@ -203,6 +204,9 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssis
       }
       break;
     }
+    case 'repair':
+      handleRepair(world, cmd.team, cmd.id, cmd.on);
+      break;
     case 'assist':
       world.players[cmd.team].assist[cmd.mode] = cmd.on;
       break;
@@ -223,7 +227,17 @@ function checkVictory(world: World): void {
     for (const b of world.buildings.values()) {
       if (b.team === p.team) { hasBuilding = true; break; }
     }
-    if (!hasBuilding) p.defeated = true;
+    if (!hasBuilding) {
+      p.defeated = true;
+      // jucătorul eliminat: unitățile rămase dispar, producția se oprește (joc 3-4 jucători: fiecare pe cont propriu)
+      const internal = getInternal(world);
+      for (const id of sortedUnitIds(world)) {
+        const u = world.units.get(id);
+        if (u && u.team === p.team) destroyEntity(world, internal, u);
+      }
+      world.projectiles = world.projectiles.filter((pr) => pr.team !== p.team);
+      p.production = { building: null, units: [], infantry: [], air: [], rally: null };
+    }
   }
   const alive = world.players.filter((p) => !p.defeated);
   if (alive.length === 1 && world.players.length > 1) {
@@ -245,6 +259,9 @@ export function step(world: World, commands: Command[]): void {
     for (const cmd of aiCommands) applyCommand(world, cmd, blocked);
   }
 
+  updatePower(world, internal);
+  updateRepairs(world, DT);
+  updateVeterancy(world, DT);
   updateDocks(world, internal, blocked);
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id);
@@ -301,6 +318,7 @@ export function hash(world: World): number {
     h = mix(h, Math.round(u.alt * 1000));
     h = mix(h, u.ammo);
     h = mix(h, u.role === 'guard' ? 1 : 0);
+    h = mix(h, u.kills * 4 + u.rank);
     h = mix(h, ORDER_CODE[u.order.kind]);
   }
   for (const id of sortedBuildingIds(world)) {
@@ -309,9 +327,11 @@ export function hash(world: World): number {
     h = mix(h, id);
     h = mix(h, Math.round(b.hp * 1000));
     h = mix(h, Math.round(b.turretAngle * 1000));
+    h = mix(h, b.repairing ? 1 : 0);
   }
   for (const p of world.players) {
     h = mix(h, Math.round(p.credits * 1000));
+    h = mix(h, Math.round(p.power.made) * 1000 + Math.round(p.power.used));
     h = mix(h, p.production.units.length * 100 + p.production.infantry.length * 10 + p.production.air.length);
     h = mix(h, (p.assist.economy ? 1 : 0) | (p.assist.defense ? 2 : 0) | (p.assist.attack ? 4 : 0) | (p.assist.allIn ? 8 : 0));
     for (const q of [p.production.units, p.production.infantry, p.production.air]) {
