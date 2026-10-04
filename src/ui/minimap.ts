@@ -6,10 +6,15 @@ interface Ping { x: number; y: number; born: number }
 
 export function initMinimap(ctx: UiContext): UiModule {
   const panel = el('div', { attrs: { id: 'minimapPanel' }, parent: ctx.root });
-  const head = el('div', { className: 'mm-head upper', parent: panel });
-  head.innerHTML = '<span>Radar</span><span class="mm-led"></span>';
   const well = el('div', { className: 'mm-well', parent: panel });
   const stack = el('div', { className: 'mm-stack', parent: well });
+  const shrink = el('button', { className: 'mm-shrink', attrs: { type: 'button', 'aria-label': 'Micșorează radarul' }, parent: panel }) as HTMLButtonElement;
+  shrink.textContent = '–';
+  shrink.addEventListener('click', (e) => {
+    e.stopPropagation();
+    ctx.sfx('click');
+    ctx.setMinimapBig(false);
+  });
   const bg = el('canvas', { attrs: { id: 'minimap', 'aria-label': 'Hartă mică' }, parent: stack });
   const fx = el('canvas', { attrs: { id: 'minimapFx' }, parent: stack });
   el('div', { className: 'mm-sweep', parent: stack });
@@ -139,6 +144,12 @@ export function initMinimap(ctx: UiContext): UiModule {
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
   function onDown(e: PointerEvent) {
+    if (!ctx.minimapBig) {
+      // radarul mic: o atingere îl mărește
+      ctx.sfx('click');
+      ctx.setMinimapBig(true);
+      return;
+    }
     stack.setPointerCapture(e.pointerId);
     if (e.button === 2) {
       const p = pointFromEvent(e);
@@ -174,6 +185,7 @@ export function initMinimap(ctx: UiContext): UiModule {
   }
 
   function update() {
+    panel.classList.toggle('big', ctx.minimapBig);
     clock += 1 / 60;
     if (clock - lastDraw > 0.12) {
       lastDraw = clock;

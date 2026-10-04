@@ -7,8 +7,10 @@ import { el } from './dom';
 import { initTopbar } from './topbar';
 import { initMinimap } from './minimap';
 import { initCommandBar } from './commandBar';
+import { initDock } from './dock';
+import { BUILDINGS, SELL_REFUND } from '../data/buildings';
+import { minimapBigPref, setMinimapBigPref } from './prefs';
 import { initQuickBar } from './quickBar';
-import { initBuildPanel } from './buildPanel';
 import { initInput } from './input';
 import { initScreens } from './screens';
 import { initToasts } from './toasts';
@@ -87,8 +89,9 @@ export function startGame(opts: StartGameOptions): GameHandle {
     speed: 1,
     tool: null,
     placing: null,
-    placeTile: null,
-    buildTab: 'buildings',
+    trayTab: null,
+    minimapBig: minimapBigPref(),
+    ghostFlash: null,
     selection: [],
     groups: new Map(),
     lastEventPos: null,
@@ -110,16 +113,13 @@ export function startGame(opts: StartGameOptions): GameHandle {
     },
     startPlacing(type) {
       ctx.placing = type;
-      ctx.placeTile = null;
       ctx.tool = null;
+      ctx.trayTab = null;
     },
     cancelPlacing() {
       ctx.placing = null;
-      ctx.placeTile = null;
+      ctx.ghostFlash = null;
       renderer.setGhost(null);
-    },
-    setPlaceTile(tx, ty) {
-      ctx.placeTile = { tx, ty };
     },
     tryPlaceAt(tx, ty) {
       const type = ctx.placing;
@@ -131,15 +131,29 @@ export function startGame(opts: StartGameOptions): GameHandle {
         return true;
       }
       ctx.sfx('error');
-      ctx.toast('Aici nu merge: pune clădirea pe teren liber, aproape de bază.', 'bad');
+      ctx.toast('Nu se poate aici.', 'bad');
+      ctx.ghostFlash = { tx, ty, until: performance.now() + 700 };
       return false;
     },
-    confirmPlace() {
-      const t = ctx.placeTile;
-      if (t) ctx.tryPlaceAt(t.tx, t.ty);
+    openTray(t) {
+      ctx.trayTab = t;
     },
-    setBuildTab(t) {
-      ctx.buildTab = t;
+    closeTray() {
+      ctx.trayTab = null;
+    },
+    setMinimapBig(b) {
+      ctx.minimapBig = b;
+      setMinimapBigPref(b);
+    },
+    sellValue(id) {
+      const b = world.buildings.get(id);
+      if (!b || b.type === 'hq') return 0;
+      return Math.floor(BUILDINGS[b.type].cost * SELL_REFUND * Math.max(0, Math.min(1, b.hp / b.maxHp)));
+    },
+    sell(id) {
+      const b = world.buildings.get(id);
+      if (!b || b.team !== localTeam || b.type === 'hq') return;
+      ctx.queueCommand({ t: 'sell', team: localTeam, id });
     },
     selectArmy() {
       const ids = Array.from(world.units.values())
@@ -206,7 +220,7 @@ export function startGame(opts: StartGameOptions): GameHandle {
     initMinimap(ctx),
     initQuickBar(ctx),
     initCommandBar(ctx),
-    initBuildPanel(ctx),
+    initDock(ctx),
     initInput(ctx, canvas),
     initHelp(ctx),
     initTips(ctx),

@@ -18,6 +18,7 @@ type Gesture =
   | { mode: 'pan'; lastX: number; lastY: number }
   | { mode: 'box' }
   | { mode: 'pinch' }
+  | { mode: 'aim' }
   | null;
 
 function distPt(a: Pt, b: Pt): number {
@@ -35,6 +36,11 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
   let gest: Gesture = null;
   let hover: Pt | null = null;
   let lastPtrType = 'mouse';
+  /** Locul țintit cu degetul în modul de plasare (fantoma urmează degetul, se pune la ridicare). */
+  let aimTile: { tx: number; ty: number } | null = null;
+  let aimStart: Pt = { x: 0, y: 0 };
+  let aimDragged = false;
+  const AIM_LIFT_PX = 44; // fantoma stă puțin deasupra degetului ca să se vadă
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let twoFinger: { dist: number; mid: Pt; moved: boolean; startedAt: number } | null = null;
   let lastTapAt = 0;
@@ -192,21 +198,27 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     };
   }
 
+  function aimAt(p: Pt) {
+    if (!ctx.placing) return;
+    // o simplă atingere pune exact sub deget; dacă trage, fantoma stă puțin deasupra degetului
+    if (distPt(p, aimStart) > 10) aimDragged = true;
+    const wp = ctx.renderer.pick(p.x, aimDragged ? Math.max(0, p.y - AIM_LIFT_PX) : p.y).world;
+    if (wp) aimTile = placementTile(wp, ctx.placing);
+  }
+
   function handleTap(p: Pt, button: number, shift: boolean, isTouch: boolean) {
     const result = ctx.renderer.pick(p.x, p.y);
 
+    if (ctx.trayTab) {
+      ctx.closeTray();
+      return;
+    }
     if (ctx.placing) {
       if (button === 2) {
         ctx.cancelPlacing();
       } else if (result.world) {
         const t = placementTile(result.world, ctx.placing);
-        if (isTouch) {
-          // pe telefon prima atingere doar alege locul; confirmarea e un buton separat
-          ctx.setPlaceTile(t.tx, t.ty);
-          ctx.sfx('click');
-        } else {
-          ctx.tryPlaceAt(t.tx, t.ty);
-        }
+        ctx.tryPlaceAt(t.tx, t.ty);
       }
       return;
     }
@@ -271,6 +283,13 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     }
 
     const isTouch = e.pointerType !== 'mouse';
+    if (isTouch && ctx.placing) {
+      gest = { mode: 'aim' };
+      aimStart = p;
+      aimDragged = false;
+      aimAt(p);
+      return;
+    }
     if (e.button === 1) {
       gest = { mode: 'pan', lastX: p.x, lastY: p.y };
       return;
@@ -302,6 +321,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
         if (Math.abs(d - twoFinger.dist) > 1.5 && twoFinger.dist > 0) {
           ctx.renderer.zoomBy(d / twoFinger.dist, mid.x, mid.y);
         }
+        ctx.renderer.panBy(-(mid.x - twoFinger.mid.x), -(mid.y - twoFinger.mid.y));
         twoFinger.dist = d;
         twoFinger.mid = mid;
       }
@@ -309,6 +329,10 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     }
 
     if (!gest) return;
+    if (gest.mode === 'aim') {
+      aimAt(p);
+      return;
+    }
     if (gest.mode === 'undecided') {
       const { x0, y0, isTouch: touchStart, button } = gest;
       if (distPt(p, { x: x0, y: y0 }) <= DRAG_THRESHOLD) return;
@@ -349,6 +373,14 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       return;
     }
     if (!gest) return;
+    if (gest.mode === 'aim') {
+      aimAt(p);
+      const t = aimTile;
+      aimTile = null;
+      gest = null;
+      if (t && ctx.placing) ctx.tryPlaceAt(t.tx, t.ty);
+      return;
+    }
     if (gest.mode === 'undecided') {
       handleTap(p, gest.button, e.shiftKey, gest.isTouch);
     } else if (gest.mode === 'box') {
@@ -362,6 +394,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     clearLongPress();
     hideBox();
     gest = null;
+    aimTile = null;
     twoFinger = null;
   }
 
@@ -465,13 +498,19 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
 
     canvas.classList.toggle('placing', !!ctx.placing || !!ctx.tool);
     if (ctx.placing) {
-      let tile: { tx: number; ty: number } | null = ctx.placeTile;
-      if (!tile && lastPtrType === 'mouse' && hover) {
+      const flash = ctx.ghostFlash && performance.now() < ctx.ghostFlash.until ? ctx.ghostFlash : null;
+      let tile: { tx: number; ty: number } | null = null;
+      let forceBad = false;
+      if (gest && gest.mode === 'aim') tile = aimTile;
+      else if (flash) {
+        tile = flash;
+        forceBad = true;
+      } else if (lastPtrType === 'mouse' && hover) {
         const wp = ctx.renderer.pick(hover.x, hover.y).world;
         if (wp) tile = placementTile(wp, ctx.placing);
       }
       if (tile) {
-        const valid = ctx.sim.canPlace(ctx.world, ctx.localTeam, ctx.placing, tile.tx, tile.ty);
+        const valid = !forceBad && ctx.sim.canPlace(ctx.world, ctx.localTeam, ctx.placing, tile.tx, tile.ty);
         ctx.renderer.setGhost({ type: ctx.placing, tx: tile.tx, ty: tile.ty, valid });
         ghostShown = true;
       } else if (ghostShown) {

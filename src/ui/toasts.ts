@@ -29,6 +29,9 @@ export function initToasts(ctx: UiContext): ToastsModule {
       case 'unitReady':
         if (e.team === ctx.localTeam) push(`${nameOf(e.unit)} gata.`);
         break;
+      case 'sold':
+        if (e.team === ctx.localTeam) push(`${nameOf(e.building)} vândută: +${e.refund} credite.`);
+        break;
       // 'buildingReady' n-are toast: bara de indicații și cardul spun deja ce trebuie făcut
       case 'underAttack':
         if (e.team === ctx.localTeam && performance.now() - lastAttackToast > 8000) {

@@ -39,3 +39,9 @@ export function timeOf(t: BuildingType | UnitType): number {
 export function canShoot(t: UnitType): boolean {
   return UNITS[t].weapon !== null && t !== 'bomber';
 }
+
+const SHORT: Partial<Record<BuildingType | UnitType, string>> = { rocketTurret: 'Antiaerian', refinery: 'Rafinărie', bomber: 'Bombardier' };
+/** Nume scurt, ca să încapă pe un pătrat de tavă. */
+export function shortName(t: BuildingType | UnitType): string {
+  return SHORT[t] ?? nameOf(t);
+}

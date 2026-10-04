@@ -7,17 +7,13 @@ export function initTopbar(ctx: UiContext): UiModule {
   const bar = el('div', { attrs: { id: 'topbar' }, parent: ctx.root });
 
   const credits = el('div', { className: 'tb-stat', attrs: { id: 'tb-credits', title: 'Credite' }, parent: bar });
-  credits.innerHTML = `${iconSvg('coin')}<span class="tb-col"><small>Credite</small><b class="tabular">0</b></span>`;
+  credits.innerHTML = `${iconSvg('coin')}<b class="tabular">0</b>`;
   const creditsVal = credits.querySelector('b') as HTMLElement;
-
-  const army = el('div', { className: 'tb-stat', attrs: { id: 'tb-army', title: 'Trupe' }, parent: bar });
-  army.innerHTML = `${iconSvg('army')}<span class="tb-col"><small>Trupe</small><b class="tabular">0</b></span>`;
-  const armyVal = army.querySelector('b') as HTMLElement;
 
   el('div', { className: 'tb-sep', parent: bar });
 
   const wave = el('div', { className: 'tb-stat', attrs: { id: 'tb-wave', title: 'Următorul atac inamic' }, parent: bar });
-  wave.innerHTML = `${iconSvg('alert')}<span class="tb-col"><small>Atac în</small><b class="tabular">--:--</b></span>`;
+  wave.innerHTML = `${iconSvg('alert')}<b class="tabular">--:--</b>`;
   const waveVal = wave.querySelector('b') as HTMLElement;
 
   const helpBtn = el('button', { className: 'btn-sq', attrs: { id: 'helpBtn', type: 'button', 'aria-label': 'Ajutor' }, parent: bar });
@@ -51,10 +47,6 @@ export function initTopbar(ctx: UiContext): UiModule {
     shownCredits += diff * rate;
     if (Math.abs(real - shownCredits) < 0.5) shownCredits = real;
     creditsVal.textContent = String(Math.round(shownCredits));
-
-    let armyCount = 0;
-    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') armyCount++;
-    armyVal.textContent = String(armyCount);
 
     const left = ctx.world.waveTimer / TICK_RATE;
     waveVal.textContent = formatTime(left);

@@ -120,6 +120,9 @@ export function initAudio(ctx: UiContext): UiModule {
       case 'buildingReady':
         if (e.team === ctx.localTeam) { tone(0.16, 0.1, 520, 520, 'triangle'); tone(0.16, 0.1, 660, 660, 'triangle', 0.1); tone(0.16, 0.18, 880, 880, 'triangle', 0.2); }
         break;
+      case 'sold':
+        if (e.team === ctx.localTeam) { tone(0.16, 0.07, 1200, 1200, 'triangle'); tone(0.16, 0.07, 1600, 1600, 'triangle', 0.08); tone(0.16, 0.12, 2000, 2000, 'triangle', 0.16); }
+        break;
       case 'buildingPlaced':
         if (e.team === ctx.localTeam) { burst(0.3, 0.25, 500, 0.7); tone(0.3, 0.2, 110, 50); }
         break;
