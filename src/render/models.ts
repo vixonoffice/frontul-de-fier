@@ -684,15 +684,92 @@ export function createSoldier(team: Team): THREE.Group {
   return g;
 }
 
+// geometrii partajate intre instante (nu se elibereaza la stergerea unei entitati)
+function shared<T extends THREE.BufferGeometry>(g: T): T {
+  g.userData.shared = true;
+  return g;
+}
+let bomberWingGeo: THREE.BufferGeometry | null = null;
+/** bombardier procedural: aripa zburatoare (stil B-2) cu cabina si motoare — nu exista avion CC0 care sa para bombardier */
 export function createBomber(team: Team): THREE.Group {
   const g = new THREE.Group();
   const tilt = new THREE.Group();
+  tilt.name = 'tilt';
   g.add(tilt);
-  tilt.add(box(0.22, 0.2, 1.2, hullMat(team), 0, 0.1, 0));
-  tilt.add(box(1.5, 0.05, 0.38, bevelMat(team), 0, 0.08, -0.1));
-  tilt.add(box(0.5, 0.04, 0.24, bevelMat(team), 0, 0.1, -0.55));
-  tilt.add(box(0.04, 0.26, 0.22, teamMat(team), 0, 0.26, -0.5));
+  if (!bomberWingGeo) {
+    const sh = new THREE.Shape();
+    const pts: [number, number][] = [[0, 0.78], [0.22, 0.5], [0.95, -0.34], [0.86, -0.44], [0.52, -0.3], [0.36, -0.5], [0.17, -0.34], [0, -0.52]];
+    sh.moveTo(pts[0][0], pts[0][1]);
+    for (let i = 1; i < pts.length; i++) sh.lineTo(pts[i][0], pts[i][1]);
+    for (let i = pts.length - 2; i >= 1; i--) sh.lineTo(-pts[i][0], pts[i][1]);
+    sh.closePath();
+    const geo = new THREE.ExtrudeGeometry(sh, { depth: 0.07, bevelEnabled: false });
+    geo.rotateX(Math.PI / 2);
+    geo.translate(0, 0.07, 0);
+    bomberWingGeo = shared(geo);
+  }
+  const wing = new THREE.Mesh(bomberWingGeo, mat('bomberWing' + team, HULL_MID[team], { roughness: 0.55, metalness: 0.3 }));
+  tilt.add(wing);
+  // dunga de echipa pe aripi si coada
+  for (const sx of [-1, 1]) {
+    const stripe = box(0.42, 0.012, 0.1, mat('bomberStripe', 0x2b2f35, { roughness: 0.6 }), sx * 0.5, 0.005, -0.05);
+    stripe.rotation.y = sx * 0.2;
+    tilt.add(stripe);
+  }
+  tilt.add(box(0.24, 0.012, 0.16, mat('bomberStripe', 0x2b2f35, { roughness: 0.6 }), 0, 0.005, -0.38));
+  tilt.add(box(0.16, 0.1, 0.34, mat('bomberHull', 0x7a828c, { roughness: 0.5, metalness: 0.4 }), 0, 0.02, 0.2));
+  tilt.add(box(0.1, 0.05, 0.14, glassMat(), 0, 0.075, 0.3));
+  for (const sx of [-1, 1]) tilt.add(box(0.1, 0.06, 0.22, mat('bomberEngine', 0x2b2e33, { roughness: 0.6, metalness: 0.5 }), sx * 0.22, 0.05, -0.24));
   g.userData.tilt = tilt;
+  enableShadows(g);
+  return g;
+}
+
+/** lumini aprinse, partajate pe echipa: se estompeaza la lipsa de curent (setLampLevel) */
+const lampMats = new Map<Team, THREE.MeshStandardMaterial>();
+export function lampMaterial(team: Team): THREE.MeshStandardMaterial {
+  let m = lampMats.get(team);
+  if (!m) {
+    m = new THREE.MeshStandardMaterial({ color: 0xffe3a0, emissive: 0xffc67a, emissiveIntensity: 2, roughness: 0.3, metalness: 0 });
+    lampMats.set(team, m);
+  }
+  return m;
+}
+export function setLampLevel(team: Team, k: number): void {
+  const m = lampMats.get(team);
+  if (m) m.emissiveIntensity = 2 * k;
+}
+
+let towerGeo: THREE.BufferGeometry | null = null;
+/** centrala electrica 2x2: doua turnuri de racire, hala cu turbine, cos cu dungi, lumini (lampMaterial) */
+export function createPower(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  g.add(foundation(1.9, 1.9));
+  if (!towerGeo) {
+    const prof = [[0.42, 0], [0.37, 0.3], [0.29, 0.7], [0.3, 1.0], [0.35, 1.3], [0.34, 1.3]].map(([r, y]) => new THREE.Vector2(r, y));
+    towerGeo = shared(new THREE.LatheGeometry(prof, 16));
+  }
+  const conc = mat('towerConcrete', 0xb9b6ac, { roughness: 0.92, metalness: 0.05, side: THREE.DoubleSide });
+  const steam: [number, number, number][] = [];
+  for (const [x, z] of [[-0.45, -0.45], [0.45, -0.45]] as const) {
+    const t = new THREE.Mesh(towerGeo, conc);
+    t.position.set(x, 0.1, z);
+    g.add(t);
+    g.add(cyl(0.37, 0.37, 0.025, teamMat(team), x, 1.0, z, 16));
+    steam.push([x, 1.45, z]);
+  }
+  const hallMat = mat('hall', 0x8d948f, { roughness: 0.8, metalness: 0.2 });
+  g.add(box(1.5, 0.5, 0.62, hallMat, -0.1, 0.35, 0.5));
+  g.add(box(1.54, 0.06, 0.66, hullMat(team), -0.1, 0.63, 0.5));
+  for (let i = 0; i < 4; i++) g.add(box(0.2, 0.14, 0.04, lampMaterial(team), -0.6 + i * 0.35, 0.4, 0.83));
+  const stack = cyl(0.07, 0.09, 1.2, mat('stackWhite', 0xe8e4dc, { roughness: 0.8 }), 0.75, 0.7, 0.5, 10);
+  g.add(stack);
+  for (const y of [0.45, 0.85, 1.25]) g.add(cyl(0.085, 0.095, 0.12, mat('stackRed', 0xc0392b, { roughness: 0.8 }), 0.75, y - 0.02, 0.5, 10));
+  g.add(box(0.05, 0.05, 0.05, lampMaterial(team), 0.75, 1.32, 0.5));
+  g.add(flag(team, -0.8, 0.1, 0.8, 1.1));
+  g.userData.footprint = { w: 2, h: 2 };
+  g.userData.riseHeight = 1.6;
+  g.userData.steam = steam;
   enableShadows(g);
   return g;
 }
@@ -713,11 +790,11 @@ export function createBarracks(team: Team): THREE.Group { return placeholderBuil
 export function createAirfield(team: Team): THREE.Group { return placeholderBuilding(team, 4, 3, 0.9); }
 
 export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THREE.Group> = {
-  warHarvester: createHarvester,
-  power: createRefinery,
   soldier: createSoldier,
   bazooka: createSoldier,
   bomber: createBomber,
+  warHarvester: createHarvester,
+  power: createPower,
   barracks: createBarracks,
   airfield: createAirfield,
   rocketTurret: createTurret,
@@ -731,4 +808,4 @@ export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THRE
 };
 
 // ajutoare refolosite si de assets.ts (modelele GLB primesc aceeasi platforma/steag de echipa)
-export const procedural = { mat, foundation, flag, box, cyl, darkMetal, teamMat, enableShadows };
+export const procedural = { shared, mat, foundation, flag, box, cyl, darkMetal, teamMat, enableShadows };

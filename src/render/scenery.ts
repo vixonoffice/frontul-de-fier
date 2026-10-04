@@ -47,15 +47,29 @@ interface Spot { x: number; y: number; k: number }
 
 export function buildScenery(map: MapData, heightAt: (x: number, y: number) => number): Scenery | null {
   const rocks = [variantFrom('rock1.glb'), variantFrom('rock2.glb')].filter((v): v is Variant => !!v);
+  const trees = ['tree1.glb', 'tree2.glb', 'tree3.glb'].map(variantFrom).filter((v): v is Variant => !!v);
+  const bush = variantFrom('bush1.glb');
   const rockSpots: Spot[][] = rocks.map(() => []);
+  const treeSpots: Spot[][] = trees.map(() => []);
+  const bushSpots: Spot[] = [];
   for (let ty = 0; ty < map.h; ty++) {
     for (let tx = 0; tx < map.w; tx++) {
-      if (map.terrain[ty * map.w + tx] !== TERRAIN_ROCK) continue;
-      const n = 1 + (hash2(tx, ty + 99) < 0.35 ? 1 : 0);
-      for (let i = 0; i < n; i++) {
-        const v = (tx + ty + i) % 4 === 0 ? Math.min(1, rocks.length - 1) : 0;
-        rockSpots[v]?.push({ x: tx + 0.15 + hash2(tx + i, ty) * 0.7, y: ty + 0.15 + hash2(ty + i, tx) * 0.7, k: hash2(tx + i * 11, ty * 7) });
+      const border = tx === 0 || ty === 0 || tx === map.w - 1 || ty === map.h - 1;
+      const isRock = map.terrain[ty * map.w + tx] === TERRAIN_ROCK;
+      if (!isRock && !border) continue;
+      const jx = tx + 0.2 + hash2(tx, ty) * 0.6, jy = ty + 0.2 + hash2(ty, tx) * 0.6;
+      const k = hash2(tx * 3, ty * 5);
+      if (isRock) {
+        const n = 1 + (hash2(tx, ty + 99) < 0.35 ? 1 : 0);
+        for (let i = 0; i < n; i++) {
+          const v = (tx + ty + i) % 4 === 0 ? Math.min(1, rocks.length - 1) : 0;
+          rockSpots[v]?.push({ x: tx + 0.15 + hash2(tx + i, ty) * 0.7, y: ty + 0.15 + hash2(ty + i, tx) * 0.7, k: hash2(tx + i * 11, ty * 7) });
+        }
       }
+      // copaci si tufisuri doar pe stanca si pe marginea hartii (unde oricum nu se lupta nimeni)
+      const r = hash2(tx + 31, ty + 17);
+      if (trees.length && r < (isRock ? 0.22 : 0.2)) treeSpots[Math.floor(k * trees.length) % trees.length].push({ x: jx, y: jy, k });
+      else if (bush && r > (isRock ? 0.62 : 0.55)) bushSpots.push({ x: jx, y: jy, k });
     }
   }
   const group = new THREE.Group();
@@ -88,6 +102,8 @@ export function buildScenery(map: MapData, heightAt: (x: number, y: number) => n
     }
   };
   rocks.forEach((v, i) => place(v, rockSpots[i], 0.6, 1.0, 0.05));
+  trees.forEach((v, i) => place(v, treeSpots[i], 1.1, 1.7, 0.02));
+  if (bush) place(bush, bushSpots, 0.45, 0.8, 0.02);
   if (insts.length === 0) return null;
   return { group, dispose: () => { for (const g of geos) g.dispose(); for (const i of insts) i.dispose(); } };
 }
