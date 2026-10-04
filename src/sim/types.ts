@@ -6,8 +6,9 @@ export type Team = 0 | 1 | 2 | 3;
 export type EntityId = number;
 
 // Etapa 2: infanterie (soldier, bazooka), aviație (bomber), cazarmă, aerodrom, turelă cu rachete (antiaeriană).
-export type UnitType = 'tank' | 'rocket' | 'harvester' | 'soldier' | 'bazooka' | 'bomber';
-export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret' | 'barracks' | 'airfield' | 'rocketTurret';
+// Etapa 3: recoltor înarmat (warHarvester), centrală electrică (power), grade, reparații, strivire.
+export type UnitType = 'tank' | 'rocket' | 'harvester' | 'soldier' | 'bazooka' | 'bomber' | 'warHarvester';
+export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret' | 'barracks' | 'airfield' | 'rocketTurret' | 'power';
 /** Clădirea care produce o unitate; fiecare are propria coadă în Production. */
 export type ProducerType = 'factory' | 'barracks' | 'airfield';
 export type WeaponFx = 'shell' | 'rocket' | 'bullet' | 'bomb';
@@ -42,6 +43,8 @@ export interface Unit {
   alt: number;                   // înălțime de zbor în tile-uri (0 = la sol); doar avioanele au > 0
   ammo: number;                  // bombe rămase (avion); 0 pentru restul
   role: UnitRole;                // implicit 'attack'; recoltoarele îl ignoră
+  kills: number;                 // câte unități/clădiri a distrus
+  rank: 0 | 1 | 2;               // grad: 0 recrut, 1 veteran, 2 elită (vezi VETERANCY în data/units.ts)
 }
 
 export interface Building {
@@ -56,6 +59,7 @@ export interface Building {
   cooldown: number;
   lastFireTick: number;
   builtTick: number;
+  repairing: boolean;            // se repară acum (costă credite pe măsură ce recuperează viață)
 }
 
 export type Entity = Unit | Building;
@@ -84,6 +88,9 @@ export type SimEvent =
   | { type: 'sold'; team: Team; id: EntityId; building: BuildingType; x: number; y: number; refund: number }
   // ce a decis asistentul, ca UI-ul să poată arăta un jurnal scurt (ex: build + 'refinery', train + 'tank', attack, defend)
   | { type: 'assist'; team: Team; mode: AssistMode; action: 'build' | 'train' | 'attack' | 'defend'; what: UnitType | BuildingType | null; x: number; y: number }
+  | { type: 'crushed'; id: EntityId; team: Team; x: number; y: number }                 // infanterist strivit de un vehicul inamic
+  | { type: 'promoted'; id: EntityId; team: Team; rank: 1 | 2; x: number; y: number }   // unitate avansată în grad
+  | { type: 'lowPower'; team: Team; on: boolean }                                       // a intrat / a ieșit din lipsă de curent
   | { type: 'gameOver'; winner: Team };
 
 // progress 0..1. `paid`: costul a fost deja luat. Unitățile din coadă se plătesc abia când le vine rândul
@@ -112,6 +119,7 @@ export interface Player {
   isAI: boolean;
   difficulty: Difficulty;
   assist: AssistState;
+  power: { made: number; used: number }; // curent produs / consumat; sub necesar = producție și turele mai lente
   production: Production;
   defeated: boolean;
 }
@@ -158,7 +166,8 @@ export type Command =
   | { t: 'assist'; team: Team; mode: AssistMode; on: boolean }           // pornește/oprește un mod al asistentului
   | { t: 'rally'; team: Team; x: number; y: number }
   | { t: 'sell'; team: Team; id: EntityId }
-  | { t: 'role'; team: Team; ids: EntityId[]; role: UnitRole };          // mută unitățile în gardă sau în forța de atac                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
+  | { t: 'role'; team: Team; ids: EntityId[]; role: UnitRole }
+  | { t: 'repair'; team: Team; id: EntityId; on: boolean };              // pornește/oprește repararea unei clădiri proprii          // mută unitățile în gardă sau în forța de atac                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
 
 export interface GameSetup {
   seed: number;

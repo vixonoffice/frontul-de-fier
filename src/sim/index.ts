@@ -40,6 +40,7 @@ export function createWorld(setup: GameSetup): World {
       isAI: pl.isAI,
       difficulty: pl.difficulty,
       assist: { economy: false, defense: false, attack: false, allIn: false },
+      power: { made: 0, used: 0 },
       production: { building: null, units: [], infantry: [], air: [], rally: null },
       defeated: false,
     })),

@@ -15,6 +15,7 @@ export interface BuildingDef {
   buildable: boolean;        // poate fi plasată de jucător/AI
   requires: BuildingType | null; // clădirea pe care trebuie s-o ai deja
   desc: string;              // o propoziție pentru jucător
+  power: number;             // curent: pozitiv = produce, negativ = consumă
 }
 
 const TURRET_SHELL: WeaponDef = {
@@ -41,6 +42,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 0, buildTime: 0,
     armor: 'structure', weapon: null, buildable: false,
     requires: null, desc: 'Inima bazei. Dacă pierzi toate clădirile, ai pierdut.',
+    power: 20,
   },
   refinery: {
     type: 'refinery', name: 'Rafinărie',
@@ -48,6 +50,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 1000, buildTime: 4,
     armor: 'structure', weapon: null, buildable: true,
     requires: null, desc: 'Aici descarcă recoltoarele minereul. Vine cu un recoltor gratuit.',
+    power: -10,
   },
   factory: {
     type: 'factory', name: 'Fabrică',
@@ -55,6 +58,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 1200, buildTime: 5,
     armor: 'structure', weapon: null, buildable: true,
     requires: 'refinery', desc: 'Produce tancuri, lansatoare și recoltoare.',
+    power: -15,
   },
   turret: {
     type: 'turret', name: 'Turelă',
@@ -62,6 +66,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 600, buildTime: 3,
     armor: 'structure', weapon: TURRET_SHELL, buildable: true,
     requires: null, desc: 'Apără baza de trupe la sol. Nu trage în avioane.',
+    power: -5,
   },
   barracks: {
     type: 'barracks', name: 'Cazarmă',
@@ -69,6 +74,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 500, buildTime: 3,
     armor: 'structure', weapon: null, buildable: true,
     requires: null, desc: 'Antrenează soldați și antitanc. Ieftină, bună la început.',
+    power: -5,
   },
   airfield: {
     type: 'airfield', name: 'Aerodrom',
@@ -76,6 +82,7 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 2000, buildTime: 7,
     armor: 'structure', weapon: null, buildable: true,
     requires: 'factory', desc: 'Produce bombardiere (maximum 3 pe aerodrom). Aici se întorc să reîncarce.',
+    power: -20,
   },
   rocketTurret: {
     type: 'rocketTurret', name: 'Turelă antiaeriană',
@@ -83,6 +90,15 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     cost: 900, buildTime: 4,
     armor: 'structure', weapon: TURRET_ROCKET, buildable: true,
     requires: 'factory', desc: 'Rachete cu rază mare. Singura apărare fixă care dă jos avioane.',
+    power: -10,
+  },
+  power: {
+    type: 'power', name: 'Centrală',
+    w: 2, h: 2, hp: 600, sight: 4,
+    cost: 600, buildTime: 3,
+    armor: 'structure', weapon: null, buildable: true,
+    requires: null, desc: 'Produce curent. Fără destul curent, producția și turelele merg la jumătate.',
+    power: 50,
   },
 };
 

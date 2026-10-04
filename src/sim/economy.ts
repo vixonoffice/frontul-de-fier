@@ -239,7 +239,7 @@ export function spawnBuilding(world: World, internal: Internal, blocked: Uint8Ar
   const def = BUILDINGS[type];
   const b: Building = {
     id: world.nextId++, kind: 'building', type, team, tx, ty, w: def.w, h: def.h,
-    hp: def.hp, maxHp: def.hp, turretAngle: -Math.PI / 2, cooldown: 0, lastFireTick: -1, builtTick: world.tick,
+    hp: def.hp, maxHp: def.hp, turretAngle: -Math.PI / 2, cooldown: 0, lastFireTick: -1, builtTick: world.tick, repairing: false,
   };
   world.buildings.set(b.id, b);
   world.events.push({ type: 'buildingPlaced', team, id: b.id, building: type });
@@ -257,7 +257,7 @@ export function spawnUnit(world: World, _internal: Internal, team: Team, type: U
     id: world.nextId++, kind: 'unit', type, team, x, y,
     angle: 0, turretAngle: 0, hp: UNITS[type].hp, maxHp: UNITS[type].hp,
     order: type === 'harvester' ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' },
-    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: type === 'bomber' ? BOMBER_PAYLOAD : 0, role: 'attack',
+    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: type === 'bomber' ? BOMBER_PAYLOAD : 0, role: 'attack', kills: 0, rank: 0,
   };
   world.units.set(u.id, u);
   if (type !== 'harvester' && rally && UNITS[type].domain === 'ground') {

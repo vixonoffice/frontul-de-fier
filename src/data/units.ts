@@ -115,6 +115,15 @@ export const UNITS: Record<UnitType, UnitDef> = {
     cargoCap: 500, mineAmount: 50, mineTime: 0.3, unloadAmount: 125, unloadTime: 0.1,
     producedAt: 'factory', domain: 'ground', desc: 'Adună minereu și îl duce la rafinărie. Așa faci bani.',
   },
+  warHarvester: {
+    type: 'warHarvester', name: 'Recoltor blindat',
+    hp: 950, speed: 1.6, turnRate: 3.5, turretTurnRate: 4,
+    sight: 6, radius: 0.4375,
+    cost: 1500, buildTime: 6,
+    armor: 'heavyVehicle', weapon: { ...CANNON, damage: 20, range: 4.2 },
+    cargoCap: 500, mineAmount: 50, mineTime: 0.3, unloadAmount: 125, unloadTime: 0.1,
+    producedAt: 'factory', domain: 'ground', desc: 'Recoltor cu turelă: adună minereu și se apără singur. Mai scump.',
+  },
   soldier: {
     type: 'soldier', name: 'Soldat',
     hp: 60, speed: 1.6, turnRate: 9, turretTurnRate: 0,
@@ -143,6 +152,20 @@ export const UNITS: Record<UnitType, UnitDef> = {
     producedAt: 'airfield', domain: 'air', desc: 'Zboară peste orice, lasă 4 bombe pe țintă și se întoarce la aerodrom să reîncarce.',
   },
 };
+
+// --- grade (ca în Red Alert 2): unitățile care distrug inamici devin mai bune ---
+export const VETERANCY = {
+  killsFor: [3, 7] as const,        // distrugeri pentru veteran, apoi elită
+  damageMult: [1, 1.25, 1.5] as const,
+  hpMult: [1, 1.2, 1.4] as const,
+  eliteRegenPerSec: 4,              // elita se repară singură încet
+};
+// vehiculele grele strivesc infanteria inamică peste care trec
+export const CRUSHERS: readonly string[] = ['tank', 'harvester', 'warHarvester'];
+// lipsa de curent: producția și turelele merg la această fracțiune din viteză
+export const LOW_POWER_FACTOR = 0.5;
+export const REPAIR_HP_PER_SEC = 60;       // viață recuperată pe secundă la reparație
+export const REPAIR_COST_FACTOR = 0.35;    // repararea completă costă această fracțiune din prețul clădirii
 
 export const MAX_QUEUE = 99;            // câte unități încap într-o coadă de producție
 export const STARTING_CREDITS = 5000;
