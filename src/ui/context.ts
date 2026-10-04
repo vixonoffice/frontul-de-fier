@@ -1,6 +1,6 @@
 // Starea comună a UI-ului, împărtășită de toate modulele (hud, minihartă, input, ecrane).
 // Nu e un contract de integrare (ca sim/types.ts sau render/api.ts) — e intern lui src/ui.
-import type { World, SimAPI, Command, Team, EntityId, BuildingType, Vec, SimEvent } from '../sim/types';
+import type { World, SimAPI, Command, Team, EntityId, BuildingType, Vec, SimEvent, Difficulty, ProducerType } from '../sim/types';
 import type { RenderAPI } from '../render/api';
 
 export interface GameStats {
@@ -12,12 +12,17 @@ export interface GameStats {
 }
 
 export type ToastKind = 'info' | 'bad';
+/** Unealta armată: următoarea atingere pe hartă execută ordinul, apoi unealta se stinge. */
+export type Tool = 'attackMove' | 'harvest' | 'bomb' | 'rally' | null;
+export type BuildTab = 'buildings' | ProducerType;
+export type SfxName = 'click' | 'error' | 'ok' | 'cancel';
 
 export interface UiContext {
   readonly root: HTMLElement;
-  /** Zona de joc (deasupra barei de sus, sub ea nu sunt sidebar-ul/sertarul) — folosită ca ancoră
-   * de poziționare pentru elementele flotante peste canvas (toasturi, panou de selecție, toolbar mobil). */
+  /** Zona de joc (sub bara de sus) — ancoră pentru elementele flotante peste canvas. */
   readonly stageEl: HTMLElement;
+  /** Coloana de jos a scenei: mesaje, indicații, confirmare și bara de comenzi. */
+  readonly bottomEl: HTMLElement;
   readonly sim: SimAPI;
   readonly renderer: RenderAPI;
   readonly localTeam: Team;
@@ -27,29 +32,44 @@ export interface UiContext {
   readonly stats: GameStats;
   paused: boolean;
   gameOver: boolean;
+  started: boolean;
+  helpOpen: boolean;
+  difficulty: Difficulty;
   speed: 1 | 2;
-  attackMoveArmed: boolean;
+  tool: Tool;
   placing: BuildingType | null;
-  pickingRally: boolean;
+  /** Locul ales pe telefon, în așteptarea confirmării. */
+  placeTile: { tx: number; ty: number } | null;
+  buildTab: BuildTab;
   selection: EntityId[];
   groups: Map<number, EntityId[]>;
   lastEventPos: Vec | null;
 
   /** Adaugă o comandă în bufferul care se trimite la sim.step() la următorul tick. */
   queueCommand(cmd: Command): void;
-  /** Schimbă selecția curentă și o sincronizează cu randarea. */
+  /** Ascultă comenzile date de jucător (folosit de sfaturi). */
+  onCommand(cb: (c: Command) => void): void;
   setSelection(ids: EntityId[]): void;
-  armAttackMove(v: boolean): void;
+  setTool(t: Tool): void;
   startPlacing(type: BuildingType): void;
+  /** Iese din modul de plasare; clădirea rămâne gata (banii NU se întorc). */
   cancelPlacing(): void;
-  /** Încearcă plasarea clădirii curente la tile-ul dat; anulează modul de plasare dacă reușește. */
-  tryPlaceAt(tx: number, ty: number): void;
-  startRallyPick(): void;
-  cancelRallyPick(): void;
-  setRallyAt(x: number, y: number): void;
+  setPlaceTile(tx: number, ty: number): void;
+  /** Încearcă plasarea clădirii la tile-ul dat. */
+  tryPlaceAt(tx: number, ty: number): boolean;
+  confirmPlace(): void;
+  setBuildTab(t: BuildTab): void;
+  selectArmy(): void;
+  selectIdleHarvesters(): void;
+  idleHarvesters(): EntityId[];
+  centerBase(): void;
   toast(msg: string, kind?: ToastKind): void;
+  sfx(name: SfxName): void;
   togglePause(): void;
   setSpeed(speed: 1 | 2): void;
+  setDifficulty(d: Difficulty): void;
+  /** Pornește un meci nou fără reîncărcarea paginii. */
+  restart(): void;
 }
 
 /** Funcție de teardown înregistrată de un submodul (listeners, intervale etc.). */

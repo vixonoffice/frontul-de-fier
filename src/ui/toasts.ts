@@ -1,7 +1,7 @@
 import type { UiContext, UiModule, ToastKind } from './context';
 import { el } from './dom';
 import type { SimEvent } from '../sim/types';
-import { BUILDING_INFO, UNIT_INFO } from './buildData';
+import { nameOf } from './buildData';
 
 const MAX_VISIBLE = 3;
 
@@ -10,7 +10,7 @@ export interface ToastsModule extends UiModule {
 }
 
 export function initToasts(ctx: UiContext): ToastsModule {
-  const box = el('div', { attrs: { id: 'toasts' }, parent: ctx.stageEl });
+  const box = el('div', { attrs: { id: 'toasts' }, parent: ctx.bottomEl });
 
   function push(text: string, kind: ToastKind = 'info') {
     const bad = kind === 'bad';
@@ -27,11 +27,9 @@ export function initToasts(ctx: UiContext): ToastsModule {
   function handleEvent(e: SimEvent) {
     switch (e.type) {
       case 'unitReady':
-        if (e.team === ctx.localTeam) push(`${UNIT_INFO[e.unit].name} gata.`);
+        if (e.team === ctx.localTeam) push(`${nameOf(e.unit)} gata.`);
         break;
-      case 'buildingReady':
-        if (e.team === ctx.localTeam) push(`${BUILDING_INFO[e.building].name} gata — alege locul.`);
-        break;
+      // 'buildingReady' n-are toast: bara de indicații și cardul spun deja ce trebuie făcut
       case 'underAttack':
         if (e.team === ctx.localTeam && performance.now() - lastAttackToast > 8000) {
           lastAttackToast = performance.now();
