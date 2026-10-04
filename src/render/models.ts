@@ -789,13 +789,133 @@ function placeholderBuilding(team: Team, w: number, d: number, h: number): THREE
 export function createBarracks(team: Team): THREE.Group { return placeholderBuilding(team, 2, 2, 0.8); }
 export function createAirfield(team: Team): THREE.Group { return placeholderBuilding(team, 4, 3, 0.9); }
 
+// --- etapa 4: artilerie, zid (ghost), turn Tesla, radar, laborator (procedurale, in stilul celorlalte) ---
+export function createArtillery(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  const dark = mat('artDark', 0x4b4f55, { roughness: 0.6, metalness: 0.45 });
+  g.add(box(0.62, 0.2, 1.05, hullMat(team), 0, 0.2, 0));
+  g.add(box(0.64, 0.03, 1.07, bevelMat(team), 0, 0.3, 0));
+  for (const sx of [-1, 1]) {
+    g.add(box(0.16, 0.2, 1.2, trackMat(), sx * 0.38, 0.12, 0));
+    g.add(box(0.1, 0.05, 1.22, dark, sx * 0.38, 0.23, 0));
+  }
+  const yaw = new THREE.Group();
+  yaw.position.set(0, 0.34, -0.12);
+  g.add(yaw);
+  yaw.add(box(0.46, 0.22, 0.5, hullMat(team), 0, 0.1, -0.05));
+  yaw.add(box(0.3, 0.04, 0.3, teamMat(team), 0, 0.23, -0.05));
+  const elev = new THREE.Group();   // se ridica la tragere
+  elev.position.set(0, 0.16, 0.1);
+  elev.rotation.x = -0.3;
+  yaw.add(elev);
+  const barrel = cyl(0.05, 0.06, 1.3, dark, 0, 0, 0.62, 10);
+  barrel.rotation.x = Math.PI / 2;
+  elev.add(barrel);
+  const brake = cyl(0.08, 0.08, 0.14, dark, 0, 0, 1.3, 10);
+  brake.rotation.x = Math.PI / 2;
+  elev.add(brake);
+  elev.add(box(0.16, 0.16, 0.22, dark, 0, 0, 0));
+  g.userData.turret = yaw;
+  g.userData.barrel = elev;
+  g.userData.hullTop = 0.5;
+  enableShadows(g);
+  return g;
+}
+
+/** ghost-ul zidului; zidurile reale se deseneaza instantiat (walls.ts), obiectul real e ascuns */
+export function createWall(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  g.add(box(0.4, 0.6, 0.4, concreteMat(), 0, 0.3, 0));
+  g.add(box(0.42, 0.06, 0.42, teamMat(team), 0, 0.63, 0));
+  g.userData.wall = true;
+  g.userData.riseHeight = 0.6;
+  return g;
+}
+
+export function createTesla(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  g.add(foundation(0.92, 0.92));
+  g.add(cyl(0.3, 0.36, 0.28, concreteMat(), 0, 0.24, 0, 12));
+  g.add(cyl(0.32, 0.32, 0.05, teamMat(team), 0, 0.36, 0, 12));
+  const copper = mat('copper', 0xb8733a, { roughness: 0.4, metalness: 0.8 });
+  g.add(cyl(0.1, 0.17, 0.85, darkMetal(), 0, 0.8, 0, 10));
+  for (let i = 0; i < 5; i++) {
+    const r = 0.21 - i * 0.025;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r, 0.03, 6, 14), copper);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = 0.55 + i * 0.16;
+    g.add(ring);
+  }
+  g.add(cyl(0.12, 0.1, 0.1, darkMetal(), 0, 1.27, 0, 10));
+  const glowMat = new THREE.MeshStandardMaterial({ color: 0x9fd4ff, emissive: 0x4aa8ff, emissiveIntensity: 0.3, roughness: 0.3 });
+  const glow = new THREE.Mesh(new THREE.SphereGeometry(0.17, 12, 10), glowMat);
+  glow.position.y = 1.42;
+  g.add(glow);
+  g.add(flag(team, 0.36, 0.1, 0.36, 0.9));
+  g.userData.teslaGlow = glow;
+  g.userData.footprint = { w: 1, h: 1 };
+  g.userData.riseHeight = 1.5;
+  enableShadows(g);
+  return g;
+}
+
+export function createRadar(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  g.add(foundation(1.9, 1.9));
+  g.add(box(1.25, 0.45, 1.25, concreteMat(), 0, 0.33, 0));
+  g.add(box(1.3, 0.06, 1.3, hullMat(team), 0, 0.58, 0));
+  for (let i = 0; i < 3; i++) g.add(box(0.2, 0.12, 0.04, lampMaterial(team), -0.35 + i * 0.35, 0.36, 0.64));
+  g.add(cyl(0.07, 0.09, 0.5, darkMetal(), 0, 0.85, 0, 8));
+  const pivot = new THREE.Group();
+  pivot.position.set(0, 1.12, 0);
+  const dish = new THREE.Mesh(new THREE.SphereGeometry(0.55, 18, 10, 0, Math.PI * 2, 0, 0.9), mat('dish', 0xd7dbd8, { roughness: 0.5, metalness: 0.3, side: THREE.DoubleSide }));
+  dish.rotation.x = -1.0;
+  dish.position.z = 0.1;
+  pivot.add(dish);
+  const arm = cyl(0.025, 0.025, 0.55, darkMetal(), 0, 0.12, 0.42, 6);
+  arm.rotation.x = -0.5;
+  pivot.add(arm);
+  pivot.add(box(0.07, 0.07, 0.07, teamMat(team), 0, 0.38, 0.62));
+  g.add(pivot);
+  g.add(flag(team, -0.75, 0.1, 0.75, 1.1));
+  g.userData.dish = pivot;
+  g.userData.footprint = { w: 2, h: 2 };
+  g.userData.riseHeight = 1.6;
+  enableShadows(g);
+  return g;
+}
+
+export function createLab(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  g.add(foundation(2.9, 1.9));
+  g.add(box(2.3, 0.55, 1.4, concreteMat(), 0.1, 0.38, 0.0));
+  g.add(box(2.34, 0.06, 1.44, hullMat(team), 0.1, 0.69, 0));
+  const dome = new THREE.Mesh(new THREE.SphereGeometry(0.62, 20, 12, 0, Math.PI * 2, 0, Math.PI / 2), mat('labDome', 0x8fd0e8, { roughness: 0.15, metalness: 0.5, emissive: 0x2a6f8a, emissiveIntensity: 0.5 }));
+  dome.position.set(-0.55, 0.72, 0);
+  g.add(dome);
+  g.add(cyl(0.64, 0.64, 0.05, darkMetal(), -0.55, 0.72, 0, 20));
+  for (let i = 0; i < 4; i++) g.add(box(0.22, 0.14, 0.04, lampMaterial(team), 0.0 + i * 0.4, 0.42, 0.72));
+  g.add(cyl(0.025, 0.03, 1.1, darkMetal(), 0.85, 1.25, -0.3, 6));
+  const blinkMat = new THREE.MeshStandardMaterial({ color: 0xff4a3a, emissive: 0xff4a3a, emissiveIntensity: 0.2 });
+  const blink = new THREE.Mesh(new THREE.SphereGeometry(0.045, 8, 6), blinkMat);
+  blink.position.set(0.85, 1.82, -0.3);
+  g.add(blink);
+  g.add(box(0.5, 0.3, 0.5, darkMetal(), 0.95, 0.9, 0.2));
+  g.add(flag(team, 1.25, 0.1, 0.75, 1.3));
+  g.userData.blinkLight = blink;
+  g.userData.footprint = { w: 3, h: 2 };
+  g.userData.riseHeight = 2;
+  enableShadows(g);
+  return g;
+}
+
 export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THREE.Group> = {
   heavyTank: createTank,
-  artillery: createRocket,
-  wall: createTurret,
-  tesla: createTurret,
-  radar: createBarracks,
-  lab: createFactory,
+  artillery: createArtillery,
+  wall: createWall,
+  tesla: createTesla,
+  radar: createRadar,
+  lab: createLab,
   soldier: createSoldier,
   bazooka: createSoldier,
   bomber: createBomber,

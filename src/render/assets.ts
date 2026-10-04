@@ -27,6 +27,8 @@ interface Spec {
   turret?: { nodes: string[]; pivot: string };
   skinned?: boolean;
   kind: 'unit' | 'building' | 'air';
+  /** noduri scoase din model inainte de masurare */
+  drop?: string[];
   /** inaltimea de la care iese din pamant cladirea cand e construita */
   rise?: number;
   extra?: (root: THREE.Group, team: Team, info: Info) => void;
@@ -46,6 +48,12 @@ const SPECS: Partial<Record<ModelType, Spec>> = {
   harvester: {
     file: 'harvester.glb', kind: 'unit', yaw: 0, len: 1.1, tintAll: 0.85,
     extra: (root, _team, info) => addOrePile(root, info),
+  },
+  heavyTank: {
+    file: 'tank.glb', kind: 'unit', yaw: Math.PI / 2, len: 1.32, drop: ['Tank_Gun'],
+    paint: { Main: 0.8, Main_Light: 1.0, Main_Dark: 0.55 },
+    turret: { nodes: ['Tank_Turret'], pivot: 'Tank_Turret' },
+    extra: (root, team, info) => addTwinBarrels(root, team, info),
   },
   warHarvester: {
     file: 'harvester.glb', kind: 'unit', yaw: 0, len: 1.1, tintAll: 0.85,
@@ -195,6 +203,7 @@ function buildTemplate(type: ModelType, team: Team): THREE.Group | null {
   if (cached) return cached;
 
   const model = (spec.skinned ? SkeletonUtils.clone(gltf.scene) : gltf.scene.clone(true)) as THREE.Group;
+  for (const n of spec.drop ?? []) model.getObjectByName(n)?.removeFromParent();
   model.traverse((o) => {
     const m = o as THREE.Mesh;
     if (!m.isMesh) return;
@@ -427,6 +436,26 @@ function addMissilePods(root: THREE.Group, team: Team): void {
     }
     pivot.add(pod);
   }
+  procedural.enableShadows(pivot);
+}
+
+/** doua tevi paralele pe tureta tancului greu */
+function addTwinBarrels(root: THREE.Group, team: Team, info: Info): void {
+  const pivot = root.getObjectByName('turretPivot');
+  if (!pivot) return;
+  const dark = procedural.mat('twinDark', 0x40444a, { roughness: 0.5, metalness: 0.55 });
+  const y = info.size.y * 0.72;
+  for (const sx of [-1, 1]) {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(0.04, 0.045, 0.78, 8), dark);
+    b.rotation.x = Math.PI / 2;
+    b.position.set(sx * 0.1, y, 0.5);
+    pivot.add(b);
+    const br = new THREE.Mesh(new THREE.CylinderGeometry(0.06, 0.06, 0.1, 8), dark);
+    br.rotation.x = Math.PI / 2;
+    br.position.set(sx * 0.1, y, 0.9);
+    pivot.add(br);
+  }
+  pivot.add(procedural.box(0.34, 0.1, 0.1, procedural.teamMat(team), 0, y, 0.12));
   procedural.enableShadows(pivot);
 }
 

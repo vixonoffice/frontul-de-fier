@@ -15,6 +15,7 @@ export class ProjectileLayer {
   private readonly bombs: THREE.Object3D[] = [];
   private readonly rockets: THREE.Mesh[] = [];
   private readonly shells: THREE.Mesh[] = [];
+  private readonly arty: THREE.Mesh[] = [];
   private readonly geos: THREE.BufferGeometry[] = [];
   private readonly mats: THREE.Material[] = [];
   private current: Projectile[] = [];
@@ -36,7 +37,17 @@ export class ProjectileLayer {
     const rocketMat = new THREE.MeshBasicMaterial({ color: 0xffb060, toneMapped: false });
     const shellGeo = new THREE.SphereGeometry(0.075, 6, 5);
     const shellMat = new THREE.MeshBasicMaterial({ color: 0xffe9b0, toneMapped: false });
-    this.geos.push(bombGeo, fin, finB, rocketGeo, shellGeo);
+    const artyGeo = new THREE.CylinderGeometry(0.07, 0.07, 0.38, 8);
+    artyGeo.rotateX(Math.PI / 2);
+    const artyMat = new THREE.MeshStandardMaterial({ color: 0x4a4d44, roughness: 0.5, metalness: 0.5, emissive: 0xff8a3a, emissiveIntensity: 0.4 });
+    this.geos.push(bombGeo, fin, finB, rocketGeo, shellGeo, artyGeo);
+    this.mats.push(artyMat);
+    for (let i = 0; i < 10; i++) {
+      const a = new THREE.Mesh(artyGeo, artyMat);
+      a.visible = false;
+      this.group.add(a);
+      this.arty.push(a);
+    }
     this.mats.push(bombMat, rocketMat, shellMat);
     for (let i = 0; i < 16; i++) {
       const g = new THREE.Group();
@@ -76,7 +87,7 @@ export class ProjectileLayer {
 
   /** la fiecare cadru */
   update(alpha: number, dt: number, heightAt: (x: number, y: number) => number, effects: EffectsSystem, visible: (x: number, y: number) => boolean): void {
-    let nb = 0, nr = 0, ns = 0;
+    let nb = 0, nr = 0, ns = 0, na = 0;
     for (const p of this.current) {
       const t = this.tracks.get(p.id);
       if (!t) continue;
@@ -106,6 +117,18 @@ export class ProjectileLayer {
         m.visible = true;
         t.smokeAcc += dt;
         if (t.smokeAcc > 0.045) { t.smokeAcc = 0; effects.smokeTrail(x - Math.sin(yaw) * 0.2, gh + h, y - Math.cos(yaw) * 0.2); }
+      } else if (p.kind === 'artillery') {
+        if (na >= this.arty.length) continue;
+        const m = this.arty[na++];
+        // arc inalt: urca abrupt, cade aproape vertical
+        const H = Math.min(5, 1.6 + total * 0.45);
+        const h = 0.4 + 4 * H * prog * (1 - prog);
+        const dh = 4 * H * (1 - 2 * prog);
+        m.position.set(x, gh + h, y);
+        m.lookAt(x + dx, gh + h + dh * 0.05, y + dy);
+        m.visible = true;
+        t.smokeAcc += dt;
+        if (t.smokeAcc > 0.035) { t.smokeAcc = 0; effects.smokeTrail(x, gh + h, y); }
       } else if (p.kind === 'shell') {
         if (ns >= this.shells.length) continue;
         const m = this.shells[ns++];
@@ -116,6 +139,7 @@ export class ProjectileLayer {
     for (let i = nb; i < this.bombs.length; i++) this.bombs[i].visible = false;
     for (let i = nr; i < this.rockets.length; i++) this.rockets[i].visible = false;
     for (let i = ns; i < this.shells.length; i++) this.shells[i].visible = false;
+    for (let i = na; i < this.arty.length; i++) this.arty[i].visible = false;
   }
 
   dispose(): void {
