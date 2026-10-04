@@ -56,6 +56,21 @@ export function initCommandBar(ctx: UiContext): UiModule {
   addBtn('harvest', 'harvest', 'Adună minereu', toggle('harvest'));
   addBtn('bomb', 'bomb', 'Bombardează', toggle('bomb'));
   addBtn('rally', 'flag', 'Punct de adunare', toggle('rally'));
+  let roleToasts = 0;
+  const roleCmd = (role: 'guard' | 'attack') => () => {
+    const ids = ctx.selection.filter((id) => {
+      const u = ctx.world.units.get(id);
+      return !!u && u.type !== 'harvester' && (role === 'guard') !== (u.role === 'guard');
+    });
+    if (!ids.length) return;
+    ctx.queueCommand({ t: 'role', team: ctx.localTeam, ids, role });
+    if (roleToasts < 4) {
+      roleToasts++;
+      ctx.toast(role === 'guard' ? 'Garda apără singură baza unde e atacată.' : 'Forța de atac pleacă în ofensive.');
+    }
+  };
+  addBtn('guard', 'shield', 'Pune în gardă', roleCmd('guard'));
+  addBtn('toattack', 'target', 'Pune la atac', roleCmd('attack'));
   const sellBtn = addBtn('sell', 'coin', 'Vinde', () => {
     const id = sellTargetId();
     if (id === null) return;
@@ -104,6 +119,7 @@ export function initCommandBar(ctx: UiContext): UiModule {
         if (b) blds.push(b);
       }
     }
+    const fighters = units.filter((u) => u.type !== 'harvester');
     const hasProducer = blds.some((b) => b.type === 'factory' || b.type === 'barracks' || b.type === 'airfield');
     const hasHarv = units.some((u) => u.type === 'harvester');
     const hasBomber = units.some((u) => u.type === 'bomber');
@@ -141,9 +157,11 @@ export function initCommandBar(ctx: UiContext): UiModule {
         hp += b.hp;
         max += b.maxHp;
       }
+      const guards = fighters.filter((u) => u.role === 'guard').length;
+      if (guards) parts.push(`${iconSvg('shield')}<b>${guards}</b>`);
       const pct = max > 0 ? Math.round((hp / max) * 100) : 100;
       const col = pct > 55 ? 'var(--ok)' : pct > 28 ? 'var(--amber)' : 'var(--red)';
-      infoHtml = `${parts.slice(0, 3).join('')}<span class="ci-hp tabular" style="color:${col}">${pct}%</span>`;
+      infoHtml = `${parts.slice(0, 4).join('')}<span class="ci-hp tabular" style="color:${col}">${pct}%</span>`;
     }
     setInfo(infoHtml);
 
@@ -154,6 +172,8 @@ export function initCommandBar(ctx: UiContext): UiModule {
       bomb: showSel && hasBomber,
       rally: showSel && hasProducer && !units.length,
       sell: showSel && sellId !== null,
+      guard: showSel && fighters.some((u) => u.role !== 'guard'),
+      toattack: showSel && fighters.some((u) => u.role === 'guard'),
     };
     for (const [id, b] of btns) {
       const v = vis[id] ? '' : 'none';

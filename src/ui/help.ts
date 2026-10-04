@@ -6,7 +6,7 @@ import { iconSvg } from './icons';
 import { BUILDINGS } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { BUILD_LIST, UNIT_GROUPS, PRODUCERS, nameOf } from './buildData';
-import { tipsEnabled, setTipsEnabled, resetSeenTips, onTipsChange } from './prefs';
+import { tipsEnabled, setTipsEnabled, resetSeenTips, onTipsChange, assistFeedOn, setAssistFeed } from './prefs';
 
 const TOUCH_HELP: [string, string][] = [
   ['Atinge o unitate', 'o selectezi. Dublu-atingere: selectezi toate unitățile de același fel de pe ecran.'],
@@ -18,6 +18,9 @@ const TOUCH_HELP: [string, string][] = [
   ['Pătratele din tavă', 'atinge ca să începi. „x” anulează și primești banii înapoi. Apăsare lungă: descrierea.'],
   ['Clădire gata', 'atinge pătratul ei, apoi atinge harta: se pune acolo, fără confirmare. Poți trage degetul ca să țintești și ridici ca să pui.'],
   ['Selecție', 'rândul de deasupra dock-ului: Atacă, Stop, Adună minereu, Bombardează, Punct de adunare.'],
+  ['Asistent', 'butonul Asistent din dock are trei comutatoare: Dezvoltare bază, Apărare și Atac (producție de armată). Se pornesc independent și îți construiesc baza din banii pe care îi ai. Armata o conduci tot tu. Lămpile de pe buton arată ce e pornit.'],
+  ['Gardă și atac', 'fiecare unitate de luptă e fie în forța de atac, fie în gardă. Garda ține un post lângă bază și merge singură unde e atacată o clădire sau un recoltor, apoi se întoarce. Forța de atac pleacă în ofensive. „Armată” din dock selectează grupurile, iar „Pune în gardă” / „Pune la atac” le mută. Pentru ofensivă totală alegi „Toată armata” și atingi ținta.'],
+  ['Cozi lungi', 'în tava unei clădiri de producție, butonul ×1 / ×5 / ×25 spune câte pui la coadă la o atingere. Poți pune până la 99 în coadă. Plătești fiecare unitate abia când îi vine rândul. „x” scoate una; ține apăsat pe „x” ca să le scoți pe toate.'],
   ['Vinde', 'selectează o clădire, „Vinde” apoi încă o atingere pentru confirmare. Primești jumătate din cost.'],
 ];
 const MOUSE_HELP: [string, string][] = [
@@ -67,6 +70,21 @@ export function initHelp(ctx: UiContext): UiModule {
     close();
   });
 
+  const feed = el('button', { className: 'switch', attrs: { type: 'button', role: 'switch', id: 'feedSwitch' }, parent: tipsBox }) as HTMLButtonElement;
+  feed.innerHTML = '<i class="knob"></i><span>Mesaje de la asistent</span><b></b>';
+  const syncFeed = () => {
+    const on = assistFeedOn();
+    feed.classList.toggle('on', on);
+    feed.setAttribute('aria-checked', on ? 'true' : 'false');
+    (feed.querySelector('b') as HTMLElement).textContent = on ? 'Pornite' : 'Oprite';
+  };
+  syncFeed();
+  feed.addEventListener('click', () => {
+    ctx.sfx('click');
+    setAssistFeed(!assistFeedOn());
+    syncFeed();
+  });
+
   // --- comenzi ---
   function section(title: string): HTMLElement {
     el('h3', { text: title, parent: body });
@@ -107,6 +125,7 @@ export function initHelp(ctx: UiContext): UiModule {
     ctx.helpOpen = true;
     ctx.paused = true;
     syncSwitch();
+    syncFeed();
     overlay.classList.add('show');
     body.scrollTop = 0;
   }

@@ -7,7 +7,7 @@ import { iconSvg } from './icons';
 import { BUILDINGS } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { BUILD_LIST, UNIT_GROUPS, PRODUCERS, QUEUE_KEY, QUEUE_MAX, nameOf, shortName, isUnitType, descOf, costOf, timeOf } from './buildData';
-import type { BuildingType, Player, UnitType } from '../sim/types';
+import type { AssistMode, BuildingType, Player, ProductionSlot, UnitType } from '../sim/types';
 
 type TileType = BuildingType | UnitType;
 
@@ -23,13 +23,22 @@ interface Tile {
 }
 
 const TAB_LABEL: Record<BuildTab, string> = {
+  assist: 'Asistent',
   buildings: 'Clădiri',
   factory: BUILDINGS.factory.name,
   barracks: BUILDINGS.barracks.name,
-  airfield: BUILDINGS.airfield.name,
+  airfield: 'Aviație',
+  army: 'Armată',
 };
-const TAB_ICON: Record<BuildTab, string> = { buildings: 'hq', factory: 'factory', barracks: 'barracks', airfield: 'airfield' };
-const TABS: BuildTab[] = ['buildings', ...PRODUCERS];
+const TAB_ICON: Record<BuildTab, string> = { buildings: 'hq', factory: 'factory', barracks: 'barracks', airfield: 'airfield', assist: 'assist', army: 'army' };
+const TABS: BuildTab[] = ['buildings', ...PRODUCERS, 'assist', 'army'];
+const MULS: (1 | 5 | 25)[] = [1, 5, 25];
+
+const ASSIST: { mode: AssistMode; name: string; desc: string; icon: string }[] = [
+  { mode: 'economy', name: 'Dezvoltare bază', desc: 'Construiește rafinării, recoltoare și clădirile de producție.', icon: 'refinery' },
+  { mode: 'defense', name: 'Apărare', desc: 'Pune turele și face unități de gardă pentru bază.', icon: 'turret' },
+  { mode: 'attack', name: 'Atac', desc: 'Produce armată de atac. Tu o conduci.', icon: 'target' },
+]
 const LONG_MS = 480;
 
 export function initDock(ctx: UiContext): UiModule {
@@ -56,6 +65,13 @@ export function initDock(ctx: UiContext): UiModule {
     const need = unit ? nameOf((def as (typeof UNITS)[UnitType]).producedAt) : (def as (typeof BUILDINGS)[BuildingType]).requires;
     const needTxt = need ? `Necesită ${nameOf(need as BuildingType)}` : 'Fără cerințe';
     pop.innerHTML = `<div class="pop-head">${iconSvg(type)}<b>${nameOf(type)}</b><span class="tabular">${costOf(type)} credite · ${timeOf(type)} s</span></div><p>${descOf(type)}</p><p class="pop-need">${needTxt}</p>`;
+    if (unit && queuedCount(type as UnitType) > 0) {
+      const rm = el('button', { className: 'pop-rm', text: `Scoate toate din coadă (${queuedCount(type as UnitType)})`, attrs: { type: 'button' }, parent: pop });
+      rm.addEventListener('click', () => {
+        cancelUnits(type as UnitType, true);
+        hidePop();
+      });
+    }
     pop.style.display = '';
     if (popTimer) clearTimeout(popTimer);
     popTimer = setTimeout(hidePop, 7000);
@@ -65,6 +81,10 @@ export function initDock(ctx: UiContext): UiModule {
     if (pop.style.display !== 'none' && !pop.contains(e.target as Node) && Date.now() - lastLong > 300) hidePop();
   }
   let lastLong = 0;
+  const queuedCount = (type: UnitType): number => queueOf(ctx.world.players.find((p) => p.team === ctx.localTeam)!.production, UNITS[type].producedAt).filter((s) => s.type === type).length;
+
+  const queueOf = (prod: Player['production'], t: BuildTab): ProductionSlot<UnitType>[] =>
+    t === 'buildings' || t === 'assist' || t === 'army' ? [] : prod[QUEUE_KEY[t]] ?? [];
 
   function localPlayer(): Player {
     return ctx.world.players.find((p) => p.team === ctx.localTeam)!;
@@ -73,6 +93,19 @@ export function initDock(ctx: UiContext): UiModule {
     let n = 0;
     for (const b of ctx.world.buildings.values()) if (b.team === ctx.localTeam && b.type === type) n++;
     return n;
+  }
+
+  /** Scoate unul sau toate dintr-un tip din coadă; toast cu cât s-a întors (doar unitățile deja plătite). */
+  function cancelUnits(type: UnitType, all: boolean) {
+    const q = queueOf(localPlayer().production, UNITS[type].producedAt);
+    const mine = q.filter((s) => s.type === type);
+    if (!mine.length) return;
+    const gone = all ? mine : [mine[mine.length - 1]];
+    const refund = gone.filter((s) => s.paid !== false).length * UNITS[type].cost;
+    ctx.sfx('cancel');
+    ctx.queueCommand({ t: 'trainCancel', team: ctx.localTeam, unit: type, ...(all ? { all: true } : {}) });
+    const what = all ? `Scoase ${gone.length} ${nameOf(type)}` : 'Scos din coadă';
+    ctx.toast(refund > 0 ? `${what}: +${refund} credite înapoi.` : `${what}.`);
   }
 
   function makeTile(parent: HTMLElement, type: TileType): Tile {
@@ -99,7 +132,7 @@ export function initDock(ctx: UiContext): UiModule {
 
   const tiles: Tile[] = [];
 
-  function wire(t: Tile, onTap: () => void, onCancel: () => void) {
+  function wire(t: Tile, onTap: () => void, onCancel: () => void, onCancelAll?: () => void) {
     let timer: ReturnType<typeof setTimeout> | null = null;
     let sx = 0;
     let sy = 0;
@@ -144,10 +177,88 @@ export function initDock(ctx: UiContext): UiModule {
       e.preventDefault();
       showPop(t.type);
     });
+    // "x" scoate unul; apăsat lung scoate toate de acest tip (doar la unități)
+    let xTimer: ReturnType<typeof setTimeout> | null = null;
+    let xFired = false;
+    t.x.addEventListener('pointerdown', (e) => {
+      e.stopPropagation();
+      xFired = false;
+      if (!onCancelAll) return;
+      xTimer = setTimeout(() => {
+        xFired = true;
+        onCancelAll();
+      }, LONG_MS);
+    });
+    for (const ev of ['pointerup', 'pointercancel', 'pointerleave']) {
+      t.x.addEventListener(ev, () => {
+        if (xTimer) clearTimeout(xTimer);
+        xTimer = null;
+      });
+    }
     t.x.addEventListener('click', (e) => {
       e.stopPropagation();
+      if (xFired) {
+        xFired = false;
+        return;
+      }
       onCancel();
     });
+  }
+
+  // --- selectorul de număr (x1 / x5 / x25) la începutul fiecărui tab de unități ---
+  const mulBtns: HTMLButtonElement[] = [];
+  for (const g of PRODUCERS) {
+    const b = el('button', { className: 'mul', attrs: { type: 'button', 'aria-label': 'Câte unități pui la coadă' }, parent: grids.get(g)! }) as HTMLButtonElement;
+    b.innerHTML = '<small>Câte</small><b></b>';
+    b.addEventListener('click', () => {
+      ctx.sfx('click');
+      ctx.trainCount = MULS[(MULS.indexOf(ctx.trainCount) + 1) % MULS.length];
+    });
+    mulBtns.push(b);
+  }
+
+  // --- asistentul: trei comutatoare mari, independente ---
+  el('p', { className: 'anote', text: 'Asistentul îți construiește baza. Atacul îl conduci tu.', parent: grids.get('assist')! });
+  const atiles = new Map<AssistMode, HTMLButtonElement>();
+  for (const a of ASSIST) {
+    const b = el('button', { className: 'atile', attrs: { type: 'button', role: 'switch', 'data-mode': a.mode }, parent: grids.get('assist')! }) as HTMLButtonElement;
+    b.innerHTML = `<span class="a-ic">${iconSvg(a.icon)}</span><span class="a-txt"><b>${a.name}</b><span class="a-desc">${a.desc}</span></span><i class="a-state"></i>`;
+    b.addEventListener('click', () => {
+      ctx.sfx('click');
+      const as = localPlayer().assist;
+      const now = !!as?.[a.mode];
+      ctx.queueCommand({ t: 'assist', team: ctx.localTeam, mode: a.mode, on: !now });
+    });
+    atiles.set(a.mode, b);
+  }
+
+  // --- armata: trei dale mari cu numărătoare vie ---
+  const ARMY: { id: 'all' | 'attack' | 'guard'; name: string; desc: string; icon: string }[] = [
+    { id: 'all', name: 'Toată armata', desc: 'Selectează toate unitățile de luptă', icon: 'army' },
+    { id: 'attack', name: 'Forța de atac', desc: 'Cele care pleacă în ofensive', icon: 'target' },
+    { id: 'guard', name: 'Garda bazei', desc: 'Apără singure baza unde e atacată', icon: 'shield' },
+  ];
+  const combat = (): import('../sim/types').Unit[] => {
+    const out = [];
+    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') out.push(u);
+    return out;
+  };
+  const armyTiles = new Map<string, HTMLButtonElement>();
+  for (const a of ARMY) {
+    const b = el('button', { className: 'atile army-tile', attrs: { type: 'button', 'data-army': a.id }, parent: grids.get('army')! }) as HTMLButtonElement;
+    b.innerHTML = `<span class="a-ic">${iconSvg(a.icon)}</span><span class="a-txt"><b>${a.name}</b><span class="a-desc">${a.desc}</span></span><i class="a-state tabular"></i>`;
+    b.addEventListener('click', () => {
+      const ids = combat().filter((u) => a.id === 'all' || (a.id === 'guard' ? u.role === 'guard' : u.role !== 'guard')).map((u) => u.id);
+      if (!ids.length) {
+        ctx.sfx('error');
+        ctx.toast(a.id === 'guard' ? 'Nu ai unități în gardă. Selectează unele și apasă „Pune în gardă”.' : 'Nu ai unități aici.', 'bad');
+        return;
+      }
+      ctx.sfx('click');
+      ctx.setSelection(ids);
+      ctx.closeTray();
+    });
+    armyTiles.set(a.id, b);
   }
 
   // --- clădiri ---
@@ -194,13 +305,10 @@ export function initDock(ctx: UiContext): UiModule {
             return;
           }
           ctx.sfx('click');
-          ctx.queueCommand({ t: 'train', team: ctx.localTeam, unit: type as UnitType });
+          ctx.queueCommand({ t: 'train', team: ctx.localTeam, unit: type as UnitType, ...(ctx.trainCount > 1 ? { count: ctx.trainCount } : {}) });
         },
-        () => {
-          ctx.sfx('cancel');
-          ctx.queueCommand({ t: 'trainCancel', team: ctx.localTeam, unit: type as UnitType });
-          ctx.toast('Anulat: primești banii înapoi.');
-        }
+        () => cancelUnits(type as UnitType, false),
+        () => cancelUnits(type as UnitType, true)
       );
       tiles.push(t);
     }
@@ -227,17 +335,14 @@ export function initDock(ctx: UiContext): UiModule {
       else ctx.openTray(t);
     });
   }
-  addDock('army', 'army', 'Armată', () => {
-    ctx.closeTray();
-    ctx.selectArmy();
-  });
+  dbtns.get('assist')!.btn.insertAdjacentHTML('beforeend', '<span class="lamps"><i></i><i></i><i></i></span>');
   addDock('home', 'home', 'Bază', () => {
     ctx.closeTray();
     ctx.centerBase();
   });
 
   const tabVisible = (t: BuildTab, prod: Player['production']): boolean => {
-    if (t === 'buildings') return true;
+    if (t === 'buildings' || t === 'assist' || t === 'army') return true;
     return count(t) > 0 || (prod[QUEUE_KEY[t]]?.length ?? 0) > 0;
   };
 
@@ -296,31 +401,64 @@ export function initDock(ctx: UiContext): UiModule {
       let n = 0;
       let prog = 0;
       let ready = false;
+      let waiting = false;
       if (t === 'buildings') {
         if (slot) {
           n = 1;
           prog = slot.progress;
           ready = slot.ready;
         }
-      } else {
-        const q = prod[QUEUE_KEY[t]] ?? [];
+      } else if (t !== 'assist' && t !== 'army') {
+        const q = queueOf(prod, t);
         n = q.length;
         prog = q[0]?.progress ?? 0;
+        waiting = n > 0 && q[0].paid === false && q[0].progress === 0;
+      }
+      if (t === 'army') {
+        const n = combat().length;
+        const bt = n ? String(n) : '';
+        if (d.badge.textContent !== bt) d.badge.textContent = bt;
+        d.badge.style.display = bt ? '' : 'none';
+        d.badge.classList.add('plain');
+        continue;
+      }
+      if (t === 'assist') {
+        const a = player.assist;
+        d.btn.classList.toggle('a-eco', !!a?.economy);
+        d.btn.classList.toggle('a-def', !!a?.defense);
+        d.btn.classList.toggle('a-atk', !!a?.attack);
+        continue;
       }
       d.btn.classList.toggle('pulse', ready);
-      d.btn.classList.toggle('busy', n > 0 && !ready);
-      const bt = ready ? '!' : n > 0 ? String(n) : '';
+      d.btn.classList.toggle('busy', n > 0 && !ready && !waiting);
+      d.btn.classList.toggle('wait', waiting);
+      const bt = ready ? '!' : n > 0 ? (n > 99 ? '99' : String(n)) : '';
       if (d.badge.textContent !== bt) d.badge.textContent = bt;
       d.badge.style.display = bt ? '' : 'none';
-      d.prog.style.width = n > 0 ? `${Math.round(Math.min(1, prog) * 100)}%` : '0%';
+      d.prog.style.width = n > 0 && !waiting ? `${Math.round(Math.min(1, prog) * 100)}%` : '0%';
     }
-    let army = 0;
-    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') army++;
-    const ad = dbtns.get('army')!;
-    const at = army ? String(army) : '';
-    if (ad.badge.textContent !== at) ad.badge.textContent = at;
-    ad.badge.style.display = at ? '' : 'none';
-    ad.badge.classList.add('plain');
+    // selectorul de număr și comutatoarele asistentului
+    for (const b of mulBtns) (b.querySelector('b') as HTMLElement).textContent = `×${ctx.trainCount}`;
+    for (const a of ASSIST) {
+      const on = !!player.assist?.[a.mode];
+      const b = atiles.get(a.mode)!;
+      b.classList.toggle('on', on);
+      b.setAttribute('aria-checked', on ? 'true' : 'false');
+      const st = b.querySelector('.a-state') as HTMLElement;
+      const txt = on ? 'PORNIT' : 'OPRIT';
+      if (st.textContent !== txt) st.textContent = txt;
+    }
+    {
+      const cs = combat();
+      const g = cs.filter((u) => u.role === 'guard').length;
+      const counts: Record<string, number> = { all: cs.length, attack: cs.length - g, guard: g };
+      for (const [id, b] of armyTiles) {
+        const st = b.querySelector('.a-state') as HTMLElement;
+        const tx = String(counts[id]);
+        if (st.textContent !== tx) st.textContent = tx;
+        b.classList.toggle('dim', counts[id] === 0);
+      }
+    }
 
     // --- pătratele ---
     for (const t of tiles) {
@@ -340,15 +478,17 @@ export function initDock(ctx: UiContext): UiModule {
       } else {
         const type = t.type as UnitType;
         const def = UNITS[type];
-        const q = prod[QUEUE_KEY[def.producedAt]] ?? [];
+        const q = queueOf(prod, def.producedAt);
         const n = q.filter((s) => s.type === type).length;
         const head = q[0];
         const isHead = !!head && head.type === type;
+        const waiting = isHead && head.paid === false && head.progress === 0;
         let blocked: string | null = null;
         if (count(def.producedAt) === 0) blocked = `Necesită ${nameOf(def.producedAt)}`;
         else if (q.length >= QUEUE_MAX) blocked = `Coada e plină (${QUEUE_MAX})`;
-        else if (credits < def.cost) blocked = `Credite insuficiente: mai trebuie ${Math.ceil(def.cost - credits)}`;
-        if (n > 0) setTile(t, { state: 'active', sub: isHead ? `${Math.round(head.progress * 100)}%` : 'coadă', progress: isHead ? head.progress : 0, count: n, blocked });
+        // banii nu mai blochează: unitățile din coadă se plătesc abia când le vine rândul
+        t.root.classList.toggle('wait', waiting);
+        if (n > 0) setTile(t, { state: 'active', sub: waiting ? 'Aștept bani' : isHead ? `${Math.round(head.progress * 100)}%` : 'coadă', progress: isHead && !waiting ? head.progress : 0, count: n, blocked });
         else setTile(t, { state: blocked ? 'locked' : 'idle', sub: '', blocked });
       }
     }
