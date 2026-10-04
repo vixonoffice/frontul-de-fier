@@ -8,6 +8,9 @@ import type { Internal } from './internal';
 import { getNav } from './internal';
 import { sortedUnitIds } from './entities';
 
+// Un recoltor atacat care a fugit nu reia imediat munca dacă a luat daună recent.
+export const HARVEST_CALM_TICKS = 60; // 3 s fără daună
+
 const ARRIVE_EPS = 0.08;
 const MISALIGNED_SLOWDOWN = 0.35;
 const ALIGN_WINDOW = 0.6; // radiani — sub acest unghi, viteză completă
@@ -65,7 +68,7 @@ export function stepMovement(world: World, internal: Internal, blocked: Uint8Arr
   const ids = sortedUnitIds(world);
   for (const id of ids) {
     const unit = world.units.get(id);
-    if (!unit) continue;
+    if (!unit || UNITS[unit.type].domain === 'air') continue; // avioanele zboară din air.ts
     moveOne(world, internal, blocked, unit, dt);
   }
   separate(world, blocked, ids);
@@ -82,7 +85,7 @@ function moveOne(world: World, internal: Internal, blocked: Uint8Array, unit: Un
         // am ajuns la destinație urmărind flow field-ul: fixează poziția finală dacă e un ordin de mutare
         nav.flow = null;
       }
-      onArrived(unit);
+      onArrived(world, internal, unit);
     }
     return;
   }
@@ -102,10 +105,12 @@ function moveOne(world: World, internal: Internal, blocked: Uint8Array, unit: Un
   }
 }
 
-function onArrived(unit: Unit): void {
+function onArrived(world: World, internal: Internal, unit: Unit): void {
   if (unit.order.kind === 'move') {
     if (unit.type === 'harvester') {
-      unit.order = { kind: 'harvest', phase: 'seek' }; // recoltorul își reia treaba automat
+      // recoltorul își reia treaba automat; dacă încă e sub foc, rămâne idle și îl reia watchdog-ul din economy.ts
+      const calm = world.tick - (internal.lastDamageTick.get(unit.id) ?? -1e9) >= HARVEST_CALM_TICKS;
+      unit.order = calm ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' };
     } else {
       unit.order = { kind: 'idle' };
     }
@@ -132,13 +137,14 @@ function separate(world: World, blocked: Uint8Array, ids: number[]): void {
   }
   const w = world.map.w, h = world.map.h;
   for (const a of units) {
+    if (UNITS[a.type].domain === 'air') continue;
     const bx = Math.floor(a.x / cell), by = Math.floor(a.y / cell);
     for (let oy = -1; oy <= 1; oy++) {
       for (let ox = -1; ox <= 1; ox++) {
         const arr = buckets.get(((by + oy) * 100000) + (bx + ox));
         if (!arr) continue;
         for (const b of arr) {
-          if (b.id <= a.id) continue; // fiecare pereche o singură dată, ordine determinist pe id
+          if (b.id <= a.id || UNITS[b.type].domain === 'air') continue; // fiecare pereche o singură dată, ordine determinist pe id
           const dx = b.x - a.x, dy = b.y - a.y;
           const d = Math.sqrt(dx * dx + dy * dy);
           const minD = (UNITS[a.type].radius + UNITS[b.type].radius) * 0.8;
@@ -234,7 +240,7 @@ export function issueMoveOrder(
   for (const id of sortedIds) {
     const u = world.units.get(id);
     if (!u) continue;
-    if (u.type === 'harvester' && kind === 'move') {
+    if (u.type === 'harvester') {
       const nav = getNav(internal, id);
       nav.engagedTarget = null;
       nav.flow = null;
@@ -242,7 +248,8 @@ export function issueMoveOrder(
     const slot = assigned.get(id) ?? { x: destX, y: destY };
     const nav = getNav(internal, id);
     nav.engagedTarget = null;
-    u.order = kind === 'move' ? { kind: 'move', x: slot.x, y: slot.y } : { kind: 'attackMove', x: slot.x, y: slot.y };
+    // recoltorul nu atacă: attackMove devine move (și apoi își reia recoltarea)
+    u.order = kind === 'move' || u.type === 'harvester' ? { kind: 'move', x: slot.x, y: slot.y } : { kind: 'attackMove', x: slot.x, y: slot.y };
     if (sharedFlow) {
       nav.flow = sharedFlow;
       u.path = [];

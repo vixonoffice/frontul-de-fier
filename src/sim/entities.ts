@@ -14,6 +14,8 @@ export function center(e: Entity): Vec {
 }
 
 export function armorOf(e: Entity): ArmorClass {
+  // avion parcat (la sol) = vehicul ușor: orice armă de sol îl poate distruge
+  if (isUnit(e) && UNITS[e.type].domain === 'air' && e.alt <= 0.25) return 'lightVehicle';
   return isUnit(e) ? UNITS[e.type].armor : BUILDINGS[e.type].armor;
 }
 

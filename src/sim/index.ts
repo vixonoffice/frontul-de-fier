@@ -2,6 +2,7 @@
 import type { BuildingType, Command, EntityId, GameSetup, SimAPI, Team, World } from './types';
 import { TICK_RATE } from './types';
 import { STARTING_CREDITS } from '../data/units';
+import { BUILDINGS } from '../data/buildings';
 import { generateMap } from './map';
 import { buildBlockedGrid } from './path';
 import { getInternal, getNav, getHarvestState } from './internal';
@@ -9,12 +10,14 @@ import { FOG_INTERVAL_TICKS, recomputeFog } from './fog';
 import {
   canPlaceBuilding, handleBuildCancel, handleBuildPlace, handleBuildStart,
   handleRally, handleTrain, handleTrainCancel, spawnBuilding, spawnUnit,
-  updateHarvester, updateProduction,
+  updateHarvester, updateProduction, commandHarvest,
 } from './economy';
-import { findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
+import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
 import { findPath } from './path';
 import { issueMoveOrder, stepMovement } from './movement';
 import { runAI } from './ai';
+import { commandAir, isAir, updateAllBombers } from './air';
+import { UNITS } from '../data/units';
 import { center, sortedBuildingIds, sortedUnitIds } from './entities';
 
 const DT = 1 / TICK_RATE;
@@ -81,12 +84,24 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
   switch (cmd.t) {
     case 'move': {
       const ids = filterOwnIds(world, cmd.team, cmd.ids);
-      if (ids.length) issueMoveOrder(world, internal, blocked, ids, cmd.x, cmd.y, 'move');
+      const air = ids.filter((id) => isAir(world.units.get(id)!));
+      if (air.length) commandAir(world, internal, air, 'move', cmd.x, cmd.y);
+      const ground = air.length ? ids.filter((id) => !air.includes(id)) : ids;
+      if (ground.length) issueMoveOrder(world, internal, blocked, ground, cmd.x, cmd.y, 'move');
       break;
     }
     case 'attackMove': {
       const ids = filterOwnIds(world, cmd.team, cmd.ids);
-      if (ids.length) issueMoveOrder(world, internal, blocked, ids, cmd.x, cmd.y, 'attackMove');
+      const air = ids.filter((id) => isAir(world.units.get(id)!));
+      // avioanele nu fac attack-move: zboară la punct și se întorc
+      if (air.length) commandAir(world, internal, air, 'move', cmd.x, cmd.y);
+      const ground = air.length ? ids.filter((id) => !air.includes(id)) : ids;
+      if (ground.length) issueMoveOrder(world, internal, blocked, ground, cmd.x, cmd.y, 'attackMove');
+      break;
+    }
+    case 'bomb': {
+      const ids = filterOwnIds(world, cmd.team, cmd.ids);
+      commandAir(world, internal, ids, 'bomb', cmd.x, cmd.y);
       break;
     }
     case 'attack': {
@@ -95,6 +110,16 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       for (const id of ids) {
         const u = world.units.get(id);
         if (!u || u.type === 'harvester') continue;
+        if (isAir(u)) {
+          // atac cu avion = raid de bombardament pe poziția țintei (doar ținte la sol)
+          if (target && !(target.kind === 'unit' && target.alt > 0.25)) {
+            const tc = center(target);
+            commandAir(world, internal, [id], 'bomb', tc.x, tc.y);
+          }
+          continue;
+        }
+        const w = UNITS[u.type].weapon;
+        if (!w || (target && !canWeaponTarget(w, target))) continue; // arma nu poate lovi ținta (ex. tanc vs avion)
         const nav = getNav(internal, id);
         nav.flow = null;
         nav.engagedTarget = cmd.targetId;
@@ -111,9 +136,10 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
     }
     case 'stop': {
       const ids = filterOwnIds(world, cmd.team, cmd.ids);
+      commandAir(world, internal, ids, 'stop', 0, 0);
       for (const id of ids) {
         const u = world.units.get(id);
-        if (!u) continue;
+        if (!u || isAir(u)) continue;
         const nav = getNav(internal, id);
         nav.flow = null;
         nav.engagedTarget = null;
@@ -133,8 +159,7 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       for (const id of ids) {
         const u = world.units.get(id);
         if (!u || u.type !== 'harvester') continue;
-        u.order = { kind: 'harvest', phase: 'seek' };
-        u.path = [];
+        commandHarvest(world, internal, blocked, u, cmd.x, cmd.y);
       }
       break;
     }
@@ -193,6 +218,7 @@ export function step(world: World, commands: Command[]): void {
     if (u && u.type === 'harvester') updateHarvester(world, internal, blocked, u, DT);
   }
   updateProduction(world, internal, blocked, DT);
+  updateAllBombers(world, internal, DT);
 
   const unitIds = sortedUnitIds(world);
   const buildingIds = sortedBuildingIds(world);
@@ -202,7 +228,7 @@ export function step(world: World, commands: Command[]): void {
   }
   for (const id of buildingIds) {
     const b = world.buildings.get(id);
-    if (b && b.type === 'turret') updateTurretBuilding(world, internal, b, DT, unitIds, buildingIds);
+    if (b && BUILDINGS[b.type].weapon) updateTurretBuilding(world, internal, b, DT, unitIds, buildingIds);
   }
   updateProjectiles(world, internal, DT);
 
@@ -216,6 +242,8 @@ export function step(world: World, commands: Command[]): void {
 export function canPlace(world: World, team: Team, type: BuildingType, tx: number, ty: number): boolean {
   return canPlaceBuilding(world, team, type, tx, ty);
 }
+
+const ORDER_CODE: Record<string, number> = { idle: 1, move: 2, attack: 3, attackMove: 4, bombRun: 5, returnToBase: 6, harvest: 7 };
 
 function mix(h: number, v: number): number {
   let x = (h ^ v) | 0;
@@ -236,6 +264,9 @@ export function hash(world: World): number {
     h = mix(h, Math.round(u.carry * 1000));
     h = mix(h, Math.round(u.angle * 1000));
     h = mix(h, Math.round(u.turretAngle * 1000));
+    h = mix(h, Math.round(u.alt * 1000));
+    h = mix(h, u.ammo);
+    h = mix(h, ORDER_CODE[u.order.kind]);
   }
   for (const id of sortedBuildingIds(world)) {
     const b = world.buildings.get(id);
@@ -246,6 +277,10 @@ export function hash(world: World): number {
   }
   for (const p of world.players) {
     h = mix(h, Math.round(p.credits * 1000));
+    h = mix(h, p.production.units.length * 100 + p.production.infantry.length * 10 + p.production.air.length);
+    for (const q of [p.production.units, p.production.infantry, p.production.air]) {
+      if (q[0]) h = mix(h, Math.round(q[0].progress * 1000));
+    }
     h = mix(h, p.defeated ? 1 : 0);
   }
   h = mix(h, world.winner === null ? -1 : world.winner);

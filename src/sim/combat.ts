@@ -1,5 +1,5 @@
 // Achiziție de țintă, rotație turelă, tragere, proiectile, daună, distrugere.
-import type { Building, Entity, EntityId, Projectile, Team, Unit, Vec, World } from './types';
+import type { Building, Entity, EntityId, Projectile, Team, Unit, Vec, WeaponFx, World } from './types';
 import { TICK_RATE } from './types';
 import { armorOf, center, collisionRadius, distCC, edgeDist, findEntity, sortedBuildingIds, sortedUnitIds, weaponOf } from './entities';
 import { angleDiff, fatan2, turnToward } from './fmath';
@@ -9,6 +9,7 @@ import { isVisible } from './fog';
 import type { WeaponDef } from '../data/units';
 import { UNITS } from '../data/units';
 import { findPath } from './path';
+import { isFlying } from './air';
 
 const UNDER_ATTACK_THROTTLE_TICKS = 10 * TICK_RATE;
 const ALIGN_THRESHOLD = 0.08; // radiani
@@ -17,38 +18,66 @@ function isEnemy(world: World, team: Team, e: Entity): boolean {
   return e.team !== team && !world.players[e.team].defeated;
 }
 
+/** Poate arma să lovească ținta (aer/sol)? Avioanele în zbor doar cu canHitAir; restul doar cu canHitGround. */
+export function canWeaponTarget(weapon: WeaponDef, t: Entity): boolean {
+  if (t.kind === 'unit' && isFlying(t)) return weapon.canHitAir;
+  return weapon.canHitGround;
+}
+
 /**
- * Caută ținta vizibilă cea mai apropiată, în raza dată. Unitățile au prioritate față de clădiri.
+ * Caută cea mai bună țintă vizibilă, în raza dată. Unitățile au prioritate față de clădiri.
+ * Dacă e dată `weapon`, țintele pe care nu le poate lovi sunt ignorate, iar scorul = distanță / multiplicator
+ * `vs` (arma preferă ce lovește bine: antitancul vehicule, pușca infanterie).
  * `unitIds`/`buildingIds` (sortate) pot fi precalculate o singură dată per tick de apelant, ca să
  * evităm sortarea O(n log n) repetată pentru fiecare unitate care își caută o țintă (O(n) apeluri/tick).
  */
 export function findTarget(
   world: World, team: Team, from: Vec, range: number, excludeId?: EntityId,
-  unitIds?: readonly EntityId[], buildingIds?: readonly EntityId[],
+  unitIds?: readonly EntityId[], buildingIds?: readonly EntityId[], weapon?: WeaponDef,
 ): Entity | null {
   let best: Entity | null = null;
-  let bestD = Infinity;
+  let bestScore = Infinity;
   for (const id of unitIds ?? sortedUnitIds(world)) {
     if (id === excludeId) continue;
     const u = world.units.get(id);
     if (!u || !isEnemy(world, team, u)) continue;
-    if (!isVisible(world, team, u.x, u.y)) continue;
+    let mult = 1;
+    if (weapon) {
+      if (!canWeaponTarget(weapon, u)) continue;
+      mult = weapon.vs[armorOf(u)];
+      if (mult <= 0) continue;
+    }
     const d = distCC(from, { x: u.x, y: u.y });
-    if (d <= range && d < bestD) { bestD = d; best = u; }
+    if (d > range) continue;
+    if (!isVisible(world, team, u.x, u.y)) continue;
+    const score = d / mult;
+    if (score < bestScore) { bestScore = score; best = u; }
   }
   if (best) return best;
   for (const id of buildingIds ?? sortedBuildingIds(world)) {
     const b = world.buildings.get(id);
     if (!b || !isEnemy(world, team, b)) continue;
+    let mult = 1;
+    if (weapon) {
+      if (!weapon.canHitGround) continue;
+      mult = weapon.vs[armorOf(b)];
+      if (mult <= 0) continue;
+    }
+    const d = edgeDist(from, b);
+    if (d > range) continue;
     const c = center(b);
     if (!isVisible(world, team, c.x, c.y)) continue;
-    const d = edgeDist(from, b);
-    if (d <= range && d < bestD) { bestD = d; best = b; }
+    const score = d / mult;
+    if (score < bestScore) { bestScore = score; best = b; }
   }
   return best;
 }
 
-function emitFire(world: World, source: Entity, aim: number, weapon: Projectile['kind']): void {
+export function weaponFx(w: WeaponDef): WeaponFx {
+  return w.kind === 'rocket' ? 'rocket' : w.kind === 'rifle' ? 'bullet' : w.kind === 'bomb' ? 'bomb' : 'shell';
+}
+
+function emitFire(world: World, source: Entity, aim: number, weapon: WeaponFx): void {
   const c = center(source);
   world.events.push({ type: 'fire', sourceId: source.id, x: c.x, y: c.y, angle: aim, weapon });
 }
@@ -58,7 +87,7 @@ function spawnProjectile(world: World, internal: Internal, source: Entity, targe
   const to = center(target);
   const proj: Projectile = {
     id: world.nextId++,
-    kind: weapon.kind === 'rocket' ? 'rocket' : 'shell',
+    kind: weaponFx(weapon),
     team: source.team,
     x: from.x, y: from.y,
     fromX: from.x, fromY: from.y,
@@ -73,7 +102,7 @@ function fire(world: World, internal: Internal, source: Entity, target: Entity, 
   const c = center(source);
   const t = center(target);
   const aim = fatan2(t.y - c.y, t.x - c.x);
-  emitFire(world, source, aim, weapon.kind === 'rocket' ? 'rocket' : 'shell');
+  emitFire(world, source, aim, weaponFx(weapon));
   spawnProjectile(world, internal, source, target, weapon);
 }
 
@@ -89,6 +118,7 @@ export function applyDamage(world: World, internal: Internal, target: Entity, ra
   const mult = weapon.vs[armorOf(target)];
   const dmg = rawDamage * mult;
   target.hp -= dmg;
+  if (target.kind === 'unit') internal.lastDamageTick.set(target.id, world.tick);
   const c = center(target);
   if (!world.players[target.team].defeated) noteUnderAttack(world, internal, target.team, c);
   if (target.hp <= 0) destroyEntity(world, internal, target);
@@ -102,6 +132,8 @@ export function destroyEntity(world: World, internal: Internal, target: Entity):
     world.units.delete(target.id);
     internal.nav.delete(target.id);
     internal.harvest.delete(target.id);
+    internal.bomber.delete(target.id);
+    internal.lastDamageTick.delete(target.id);
   } else {
     world.buildings.delete(target.id);
   }
@@ -141,7 +173,7 @@ export function updateUnitCombat(
   unitIds?: readonly EntityId[], buildingIds?: readonly EntityId[],
 ): void {
   const def = UNITS[unit.type];
-  if (!def.weapon) return; // recoltorul nu luptă
+  if (!def.weapon || def.domain === 'air') return; // recoltorul nu luptă; avioanele au logica în air.ts
   const wr = weaponAndRangeOf(unit);
   if (!wr) return;
   const { weapon, range } = wr;
@@ -149,7 +181,7 @@ export function updateUnitCombat(
 
   if (nav.engagedTarget !== null) {
     const t = findEntity(world, nav.engagedTarget);
-    if (!t || !isVisible(world, unit.team, center(t).x, center(t).y)) {
+    if (!t || !isVisible(world, unit.team, center(t).x, center(t).y) || !canWeaponTarget(weapon, t)) {
       nav.engagedTarget = null;
     }
   }
@@ -157,7 +189,7 @@ export function updateUnitCombat(
   if (unit.order.kind === 'attack') {
     if (nav.engagedTarget !== unit.order.targetId) nav.engagedTarget = unit.order.targetId;
     const t = findEntity(world, unit.order.targetId);
-    if (!t) {
+    if (!t || !canWeaponTarget(weapon, t)) {
       unit.order = { kind: 'idle' };
       nav.engagedTarget = null;
     } else {
@@ -176,7 +208,7 @@ export function updateUnitCombat(
     }
   } else if (unit.order.kind === 'attackMove') {
     if (nav.engagedTarget === null) {
-      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, def.sight, unit.id, unitIds, buildingIds);
+      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, def.sight, unit.id, unitIds, buildingIds, weapon);
       if (t) nav.engagedTarget = t.id;
     }
     if (nav.engagedTarget !== null) {
@@ -200,7 +232,7 @@ export function updateUnitCombat(
     }
   } else if (unit.order.kind === 'idle' || unit.order.kind === 'move') {
     if (nav.engagedTarget === null) {
-      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, range + IDLE_ENGAGE_MARGIN, unit.id, unitIds, buildingIds);
+      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, range + IDLE_ENGAGE_MARGIN, unit.id, unitIds, buildingIds, weapon);
       if (t && unit.order.kind === 'idle') {
         nav.engagedTarget = t.id;
         nav.holdOriginX = unit.x;
@@ -252,7 +284,7 @@ export function updateTurretBuilding(
 ): void {
   const w = weaponOf(building);
   if (!w) return;
-  const t = findTarget(world, building.team, center(building), w.range, undefined, unitIds, buildingIds);
+  const t = findTarget(world, building.team, center(building), w.range, undefined, unitIds, buildingIds, w);
   if (t) {
     tryFireAt(world, internal, building, t, w, dt);
   } else {
@@ -263,6 +295,17 @@ export function updateTurretBuilding(
 export function updateProjectiles(world: World, internal: Internal, dt: number): void {
   const alive: Projectile[] = [];
   for (const p of world.projectiles) {
+    const sourceWeapon = internal.projectileWeapon.get(p.id) ?? FALLBACK_WEAPON;
+    if (p.kind === 'bomb') {
+      // bombă: cade vertical spre punctul de sub avion; la impact daună de zonă doar inamicilor de la sol
+      const z = (p.z ?? 0) - sourceWeapon.projectileSpeed * dt;
+      if (z > 0) { p.z = z; alive.push(p); continue; }
+      p.z = 0;
+      world.events.push({ type: 'hit', x: p.tx, y: p.ty, weapon: 'bomb' });
+      applySplash(world, internal, p, sourceWeapon);
+      internal.projectileWeapon.delete(p.id);
+      continue;
+    }
     const target = findEntity(world, p.targetId);
     if (target) {
       const c = center(target);
@@ -270,13 +313,12 @@ export function updateProjectiles(world: World, internal: Internal, dt: number):
     }
     const dx = p.tx - p.x, dy = p.ty - p.y;
     const d = Math.sqrt(dx * dx + dy * dy);
-    const sourceWeapon = internal.projectileWeapon.get(p.id) ?? FALLBACK_WEAPON;
     const step = sourceWeapon.projectileSpeed * dt;
     if (d <= step + 0.05) {
       world.events.push({ type: 'hit', x: p.tx, y: p.ty, weapon: p.kind });
       if (sourceWeapon.splash > 0) {
         applySplash(world, internal, p, sourceWeapon);
-      } else if (target) {
+      } else if (target && canWeaponTarget(sourceWeapon, target)) {
         applyDamage(world, internal, target, sourceWeapon.damage, sourceWeapon);
       }
       internal.projectileWeapon.delete(p.id);
@@ -294,16 +336,17 @@ function applySplash(world: World, internal: Internal, p: Projectile, weapon: We
   const victims: Entity[] = [];
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id);
-    if (u && u.team !== p.team) victims.push(u);
+    if (u && u.team !== p.team && canWeaponTarget(weapon, u)) victims.push(u);
   }
   for (const id of sortedBuildingIds(world)) {
     const b = world.buildings.get(id);
-    if (b && b.team !== p.team) victims.push(b);
+    if (b && b.team !== p.team && weapon.canHitGround) victims.push(b);
   }
   for (const v of victims) {
     const d = edgeDist({ x: p.tx, y: p.ty }, v);
     if (d <= weapon.splash) {
-      const isPrimary = v.id === p.targetId;
+      // bombă: daună plină aproape de centru, jumătate la margine; rest: plină doar pe ținta principală
+      const isPrimary = p.kind === 'bomb' ? d <= weapon.splash * 0.5 : v.id === p.targetId;
       applyDamage(world, internal, v, isPrimary ? weapon.damage : weapon.damage * 0.5, weapon);
     }
   }
