@@ -7,11 +7,12 @@ export type EntityId = number;
 
 // Etapa 2: infanterie (soldier, bazooka), aviație (bomber), cazarmă, aerodrom, turelă cu rachete (antiaeriană).
 // Etapa 3: recoltor înarmat (warHarvester), centrală electrică (power), grade, reparații, strivire.
-export type UnitType = 'tank' | 'rocket' | 'harvester' | 'soldier' | 'bazooka' | 'bomber' | 'warHarvester';
-export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret' | 'barracks' | 'airfield' | 'rocketTurret' | 'power';
+// Etapa 4 (pasul 1): tanc greu, artilerie, zid, turn Tesla, radar, laborator.
+export type UnitType = 'tank' | 'rocket' | 'harvester' | 'soldier' | 'bazooka' | 'bomber' | 'warHarvester' | 'heavyTank' | 'artillery';
+export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret' | 'barracks' | 'airfield' | 'rocketTurret' | 'power' | 'wall' | 'tesla' | 'radar' | 'lab';
 /** Clădirea care produce o unitate; fiecare are propria coadă în Production. */
 export type ProducerType = 'factory' | 'barracks' | 'airfield';
-export type WeaponFx = 'shell' | 'rocket' | 'bullet' | 'bomb';
+export type WeaponFx = 'shell' | 'rocket' | 'bullet' | 'bomb' | 'tesla' | 'artillery';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export interface Vec { x: number; y: number }

@@ -407,7 +407,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         const mx = ev.x + Math.cos(ev.angle) * off;
         const my = ev.y + Math.sin(ev.angle) * off;
         const h = heightAt(mx, my) + (inf ? 0.36 : 0.42);
-        effects.muzzleFlash(mx, h, my, ev.weapon);
+        effects.muzzleFlash(mx, h, my, ev.weapon === 'artillery' || ev.weapon === 'tesla' ? 'shell' : ev.weapon);
         if (ev.weapon === 'shell') {
           effects.tracer(mx, h, my, mx + Math.cos(ev.angle) * 5, h, my + Math.sin(ev.angle) * 5);
         } else if (ev.weapon === 'bullet') {

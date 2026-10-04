@@ -100,6 +100,41 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
     requires: null, desc: 'Produce curent. Fără destul curent, producția și turelele merg la jumătate.',
     power: 50,
   },
+  wall: {
+    type: 'wall', name: 'Zid',
+    w: 1, h: 1, hp: 500, sight: 1,
+    cost: 100, buildTime: 0.5,
+    armor: 'structure', weapon: null, buildable: true,
+    requires: null, desc: 'Oprește trupele la sol. Bun de închis trecători. Nu consumă curent.',
+    power: 0,
+  },
+  radar: {
+    type: 'radar', name: 'Radar',
+    w: 2, h: 2, hp: 700, sight: 12,
+    cost: 1000, buildTime: 5,
+    armor: 'structure', weapon: null, buildable: true,
+    requires: 'factory', desc: 'Îți dă miniharta și vede departe. Are nevoie de curent.',
+    power: -20,
+  },
+  lab: {
+    type: 'lab', name: 'Laborator',
+    w: 3, h: 2, hp: 800, sight: 5,
+    cost: 2000, buildTime: 8,
+    armor: 'structure', weapon: null, buildable: true,
+    requires: 'radar', desc: 'Deblochează tancul greu, artileria și turnul Tesla.',
+    power: -30,
+  },
+  tesla: {
+    type: 'tesla', name: 'Turn Tesla',
+    w: 1, h: 1, hp: 600, sight: 8,
+    cost: 1500, buildTime: 6,
+    armor: 'structure',
+    weapon: { kind: 'tesla', damage: 200, reload: 3.2, range: 7, projectileSpeed: 100, splash: 0.4, instant: true,
+      vs: { lightVehicle: 1.2, heavyVehicle: 1.0, structure: 0.5, infantry: 2.0, aircraft: 0 }, canHitAir: false, canHitGround: true },
+    buildable: true,
+    requires: 'lab', desc: 'Fulger devastator, reîncărcare lentă. Fără curent nu trage deloc.',
+    power: -40,
+  },
 };
 
 export const SELL_REFUND = 0.5; // fracțiunea din cost primită înapoi la vânzare (proporțional cu viața rămasă)

@@ -3,7 +3,7 @@
 import type { UnitType } from '../sim/types';
 
 export type ArmorClass = 'lightVehicle' | 'heavyVehicle' | 'structure' | 'infantry' | 'aircraft';
-export type WeaponKind = 'cannon' | 'rocket' | 'rifle' | 'bomb';
+export type WeaponKind = 'cannon' | 'rocket' | 'rifle' | 'bomb' | 'tesla' | 'artillery';
 
 export interface WeaponDef {
   kind: WeaponKind;
@@ -16,6 +16,8 @@ export interface WeaponDef {
   vs: Record<ArmorClass, number>;
   canHitAir: boolean;       // poate ținti avioane în zbor
   canHitGround: boolean;
+  minRange?: number;        // nu poate trage mai aproape de atât (artilerie)
+  instant?: boolean;        // lovește pe loc, fără proiectil care zboară (Tesla)
 }
 
 export interface UnitDef {
@@ -39,6 +41,7 @@ export interface UnitDef {
   producedAt: 'factory' | 'barracks' | 'airfield';
   domain: 'ground' | 'air';
   desc: string;             // o propoziție pentru jucător: la ce e bună unitatea
+  requires?: 'lab' | 'radar'; // clădire de tehnologie necesară, pe lângă cea care o produce
 }
 
 // --- avioane ---
@@ -124,6 +127,28 @@ export const UNITS: Record<UnitType, UnitDef> = {
     cargoCap: 500, mineAmount: 50, mineTime: 0.3, unloadAmount: 125, unloadTime: 0.1,
     producedAt: 'factory', domain: 'ground', desc: 'Recoltor cu turelă: adună minereu și se apără singur. Mai scump.',
   },
+  heavyTank: {
+    type: 'heavyTank', name: 'Tanc greu',
+    hp: 800, speed: 1.4, turnRate: 3, turretTurnRate: 3,
+    sight: 6, radius: 0.46,
+    cost: 1600, buildTime: 7,
+    armor: 'heavyVehicle',
+    weapon: { kind: 'cannon', damage: 70, reload: 1.5, range: 5, projectileSpeed: 16, splash: 0.3,
+      vs: { lightVehicle: 1.1, heavyVehicle: 1.1, structure: 1.0, infantry: 0.5, aircraft: 0.8 }, canHitAir: true, canHitGround: true },
+    cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
+    producedAt: 'factory', domain: 'ground', requires: 'lab', desc: 'Două țevi, blindaj gros, trage și în avioane. Lent și scump.',
+  },
+  artillery: {
+    type: 'artillery', name: 'Artilerie',
+    hp: 150, speed: 1.2, turnRate: 3, turretTurnRate: 2,
+    sight: 6, radius: 0.4,
+    cost: 1200, buildTime: 6,
+    armor: 'lightVehicle',
+    weapon: { kind: 'artillery', damage: 110, reload: 4.5, range: 11, minRange: 3.5, projectileSpeed: 7, splash: 1.1,
+      vs: { lightVehicle: 0.9, heavyVehicle: 0.7, structure: 1.8, infantry: 1.3, aircraft: 0 }, canHitAir: false, canHitGround: true },
+    cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
+    producedAt: 'factory', domain: 'ground', requires: 'lab', desc: 'Bate de foarte departe și sparge turele. Nu poate trage aproape și e fragilă.',
+  },
   soldier: {
     type: 'soldier', name: 'Soldat',
     hp: 60, speed: 1.6, turnRate: 9, turretTurnRate: 0,
@@ -161,7 +186,7 @@ export const VETERANCY = {
   eliteRegenPerSec: 4,              // elita se repară singură încet
 };
 // vehiculele grele strivesc infanteria inamică peste care trec
-export const CRUSHERS: readonly string[] = ['tank', 'harvester', 'warHarvester'];
+export const CRUSHERS: readonly string[] = ['tank', 'harvester', 'warHarvester', 'heavyTank'];
 // lipsa de curent: producția și turelele merg la această fracțiune din viteză
 export const LOW_POWER_FACTOR = 0.5;
 export const REPAIR_HP_PER_SEC = 60;       // viață recuperată pe secundă la reparație

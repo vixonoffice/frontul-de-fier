@@ -790,6 +790,12 @@ export function createBarracks(team: Team): THREE.Group { return placeholderBuil
 export function createAirfield(team: Team): THREE.Group { return placeholderBuilding(team, 4, 3, 0.9); }
 
 export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THREE.Group> = {
+  heavyTank: createTank,
+  artillery: createRocket,
+  wall: createTurret,
+  tesla: createTurret,
+  radar: createBarracks,
+  lab: createFactory,
   soldier: createSoldier,
   bazooka: createSoldier,
   bomber: createBomber,
