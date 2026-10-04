@@ -16,8 +16,10 @@ import { UILayer, type EntitySyncEntry } from './uiLayer';
 import { MODEL_FACTORY, setLampLevel } from './models';
 import { preloadAssets, instantiate, assetsVersion, isReady, sceneryLoaded, damagedMaterial, type Instance, type ModelType } from './assets';
 import { ProjectileLayer } from './projectiles';
+import { WallLayer, type WallEntry } from './walls';
 import { buildScenery, type Scenery } from './scenery';
 import { BUILDINGS } from '../data/buildings';
+import { TICK_RATE } from '../sim/types';
 
 const RISE_TICKS = 60;
 const TAU = Math.PI * 2;
@@ -34,6 +36,8 @@ function worldYaw(angle: number): number {
 
 function unitRadius(type: Unit['type']): number {
   if (type === 'harvester' || type === 'warHarvester') return 0.95;
+  if (type === 'heavyTank') return 0.95;
+  if (type === 'artillery') return 0.8;
   if (type === 'rocket') return 0.75;
   if (type === 'soldier' || type === 'bazooka') return 0.42;
   if (type === 'bomber') return 0.95;
@@ -50,6 +54,7 @@ function unitPickBox(type: Unit['type']): { w: number; h: number; d: number } {
     case 'soldier': case 'bazooka': return { w: 0.75, h: 0.8, d: 0.75 };
     case 'bomber': return { w: 1.7, h: 0.9, d: 1.7 };
     case 'harvester': case 'warHarvester': return { w: 1.1, h: 0.9, d: 1.4 };
+    case 'heavyTank': return { w: 1.2, h: 0.9, d: 1.5 };
     default: return { w: 1.0, h: 0.8, d: 1.3 };
   }
 }
@@ -69,6 +74,7 @@ interface AnimRecord {
   animAcc: number;
   rank: number;
   repairing: boolean;
+  cooldown: number;
   dmg: 0 | 1 | 2;                // stare de avarie: 0 intact, 1 sub 50%, 2 sub 25%
   repairFx: THREE.Group | null;
   repairAcc: number;
@@ -141,6 +147,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   scene.add(effects.group);
   const ui = new UILayer();
   scene.add(ui.group);
+  const wallLayer = new WallLayer();
+  scene.add(wallLayer.group);
   const projectiles = new ProjectileLayer();
   scene.add(projectiles.group);
   preloadAssets();
@@ -185,7 +193,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     return new THREE.BoxGeometry(size.w, buildingPickHeight(type as BuildingType), size.h);
   }
   function buildingPickHeight(type: BuildingType): number {
-    return type === 'turret' || type === 'rocketTurret' ? 1.0 : type === 'barracks' ? 1.8 : 2.2;
+    return type === 'wall' ? 0.7 : type === 'turret' || type === 'rocketTurret' ? 1.0 : type === 'tesla' ? 1.5 : type === 'radar' ? 1.5 : type === 'barracks' ? 1.8 : 2.2;
   }
 
   // aglomerare: peste ~70 de unitati pe ecran nu mai proiecteaza umbra fiecare (cost de pasaj de umbre)
@@ -313,7 +321,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       proxies.set(u.id, proxy);
       rec = {
         kind: 'unit', type: u.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: u.lastFireTick,
-        prevAlt: u.alt, curAlt: u.alt, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: unitPickBox(u.type).h, animAcc: 0, rank: 0, repairing: false, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
+        prevAlt: u.alt, curAlt: u.alt, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: unitPickBox(u.type).h, animAcc: 0, rank: 0, repairing: false, cooldown: 0, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
         team: u.team, maxHp: u.maxHp, hp: u.hp, radius: unitRadius(u.type),
         builtTick: -999999, riseHeight: 0,
         prevX: u.x, prevY: u.y, prevAngle: u.angle, prevTurret: u.turretAngle,
@@ -350,7 +358,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       const riseHeight = (obj.userData.riseHeight as number | undefined) ?? 2;
       rec = {
         kind: 'building', type: b.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: 0,
-        prevAlt: 0, curAlt: 0, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: buildingPickHeight(b.type), animAcc: 0, rank: 0, repairing: false, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
+        prevAlt: 0, curAlt: 0, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: buildingPickHeight(b.type), animAcc: 0, rank: 0, repairing: false, cooldown: 0, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
         team: b.team, maxHp: b.maxHp, hp: b.hp, radius: Math.max(size.w, size.h) * 0.62,
         builtTick: b.builtTick, riseHeight,
         prevX: cx, prevY: cy, prevAngle: 0, prevTurret: b.turretAngle,
@@ -366,6 +374,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     rec.hp = b.hp;
     rec.maxHp = b.maxHp;
     rec.repairing = !!b.repairing;
+    rec.cooldown = b.cooldown;
   }
 
   /** cand un GLB tocmai s-a incarcat: inlocuieste placeholderele de acel tip */
@@ -388,6 +397,17 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     }
   }
 
+  /** segmentele de zid se deseneaza instantiat; varianta depinde de vecini, deci se reface la fiecare tick */
+  function rebuildWalls(world: World): void {
+    const list: WallEntry[] = [];
+    for (const b of world.buildings.values()) {
+      if (b.type !== 'wall') continue;
+      if (b.team !== localTeam && fogValueAt(world, b.tx, b.ty) < 1) continue;
+      list.push({ tx: b.tx, ty: b.ty, team: b.team, hpFrac: b.maxHp > 0 ? b.hp / b.maxHp : 1 });
+    }
+    wallLayer.update(list, heightAt);
+  }
+
   function syncEntities(world: World): void {
     const present = new Set<EntityId>();
     for (const u of world.units.values()) { present.add(u.id); upsertUnit(u); }
@@ -397,17 +417,42 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     }
   }
 
+  /** fulger de la varful turnului pana la cel mai apropiat impact Tesla din acelasi tick (altfel spre tinta sursei) */
+  function fireTesla(world: World, ev: { sourceId: number; x: number; y: number; angle: number }): void {
+    const b = world.buildings.get(ev.sourceId);
+    const sx = b ? b.tx + b.w / 2 : ev.x, sy = b ? b.ty + b.h / 2 : ev.y;
+    let best: { x: number; y: number } | null = null, bd = 1e9;
+    for (const h of world.events) {
+      if (h.type !== 'hit' || h.weapon !== 'tesla') continue;
+      const d = Math.hypot(h.x - sx, h.y - sy);
+      if (d < bd) { bd = d; best = h; }
+    }
+    const tx = best ? best.x : sx + Math.cos(ev.angle) * 5;
+    const ty = best ? best.y : sy + Math.sin(ev.angle) * 5;
+    effects.lightning(sx, heightAt(sx, sy) + 1.45, sy, tx, heightAt(tx, ty) + 0.4, ty);
+  }
+
   function processEvents(world: World): void {
     for (const ev of world.events) {
       if (ev.type === 'fire') {
         if (ev.weapon === 'bomb') continue; // bomba se vede cum cade (ProjectileLayer)
+        if (ev.weapon === 'tesla') { fireTesla(world, ev); continue; }
         const src = world.units.get(ev.sourceId);
+        if (src && src.type === 'heavyTank' && ev.weapon === 'shell') {
+          // doua tevi: doua sclipiri, laterale
+          for (const side of [-1, 1]) {
+            const px = ev.x + Math.cos(ev.angle) * 1.0 - Math.sin(ev.angle) * 0.12 * side;
+            const py = ev.y + Math.sin(ev.angle) * 1.0 + Math.cos(ev.angle) * 0.12 * side;
+            effects.muzzleFlash(px, heightAt(px, py) + 0.45, py, 'shell');
+          }
+          continue;
+        }
         const inf = !!src && (src.type === 'soldier' || src.type === 'bazooka');
         const off = inf ? 0.32 : 0.85;
         const mx = ev.x + Math.cos(ev.angle) * off;
         const my = ev.y + Math.sin(ev.angle) * off;
         const h = heightAt(mx, my) + (inf ? 0.36 : 0.42);
-        effects.muzzleFlash(mx, h, my, ev.weapon === 'artillery' || ev.weapon === 'tesla' ? 'shell' : ev.weapon);
+        effects.muzzleFlash(mx, h, my, ev.weapon);
         if (ev.weapon === 'shell') {
           effects.tracer(mx, h, my, mx + Math.cos(ev.angle) * 5, h, my + Math.sin(ev.angle) * 5);
         } else if (ev.weapon === 'bullet') {
@@ -416,7 +461,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         }
       } else if (ev.type === 'hit') {
         const hy = heightAt(ev.x, ev.y);
-        if (ev.weapon === 'bomb') effects.bombBlast(ev.x, hy + 0.3, ev.y, camera.distance);
+        if (ev.weapon === 'tesla') effects.teslaHit(ev.x, hy, ev.y);
+        else if (ev.weapon === 'artillery') effects.artilleryBlast(ev.x, hy + 0.2, ev.y, camera.distance);
+        else if (ev.weapon === 'bomb') effects.bombBlast(ev.x, hy + 0.3, ev.y, camera.distance);
         else if (ev.weapon === 'bullet') effects.bulletSpark(ev.x, hy + 0.25, ev.y);
         else effects.hit(ev.x, hy + 0.3, ev.y, ev.weapon === 'rocket' ? 'rocket' : 'shell');
       } else if (ev.type === 'destroyed') {
@@ -531,7 +578,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       sphere.radius = rec.radius + 2.2 + (flying ? 3.5 : 0);
       const onScreen = visible && frustumReady && frustum.intersectsSphere(sphere) || (visible && !frustumReady);
       rec.onScreen = onScreen;
-      obj.visible = onScreen;
+      obj.visible = onScreen && !obj.userData.wall;
       if (rec.shadow) rec.shadow.visible = onScreen;
       proxy.visible = false; // proxy e mereu invizibil vizual; serveste doar pick-ului
       if (visible) pickableNow.add(id);
@@ -549,6 +596,11 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
           const turretAngle = lerpAngle(rec.prevTurret, rec.curTurret, alpha);
           turretPivot.rotation.y = angle - turretAngle;
         }
+        const barrel = obj.userData.barrel as THREE.Object3D | undefined;
+        if (barrel && rec.type === 'artillery') {
+          const want = world.tick - rec.lastFire < 14 ? -0.85 : -0.3;
+          barrel.rotation.x += (want - barrel.rotation.x) * Math.min(1, dt * 6);
+        }
         const hopper = obj.userData.hopper as THREE.Mesh | undefined;
         if (hopper) {
           const base = (obj.userData.hopperBaseY as number) ?? 0.37;
@@ -558,7 +610,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
           hopper.scale.y = Math.max(0.05, h / 0.1);
           hopper.position.y = base + h / 2;
         }
-        if (onScreen && rec.moving && (rec.type === 'tank' || rec.type === 'rocket' || rec.type === 'harvester' || rec.type === 'warHarvester')) {
+        if (onScreen && rec.moving && (rec.type === 'tank' || rec.type === 'rocket' || rec.type === 'harvester' || rec.type === 'warHarvester' || rec.type === 'heavyTank' || rec.type === 'artillery')) {
           rec.dustAcc += dt;
           rec.trackAcc += dt;
           if (rec.dustAcc > 0.1) {
@@ -582,6 +634,17 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         if (turretPivot) {
           const turretAngle = lerpAngle(rec.prevTurret, rec.curTurret, alpha);
           turretPivot.rotation.y = worldYaw(turretAngle);
+        }
+        const glow = obj.userData.teslaGlow as THREE.Mesh | undefined;
+        if (glow) {
+          const wp = BUILDINGS.tesla.weapon;
+          const maxCd = wp ? wp.reload * TICK_RATE : 64;
+          const charge = 1 - Math.max(0, Math.min(1, rec.cooldown / maxCd));
+          const pw = world.players[rec.team]?.power;
+          const dead = !!pw && pw.used > pw.made;   // fara curent: intunecat si mort
+          const mm = glow.material as THREE.MeshStandardMaterial;
+          mm.emissiveIntensity = dead ? 0.03 : 0.25 + 4.5 * charge * charge + (charge > 0.95 ? 0.4 * Math.sin(clock * 40) : 0);
+          mm.color.setHex(dead ? 0x2a3036 : 0x9fd4ff);
         }
         const dish = obj.userData.dish as THREE.Object3D | undefined;
         if (dish) dish.rotation.y = clock * 0.6;
@@ -719,6 +782,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     if (world.tick !== lastTick) {
       syncEntities(world);
       projectiles.sync(world.projectiles);
+      rebuildWalls(world);
       processEvents(world);
       lastTick = world.tick;
     }
@@ -822,6 +886,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       ui.dispose();
       projectiles.dispose();
       scenery?.dispose();
+      wallLayer.dispose();
       composer?.dispose();
       renderer.dispose();
     },

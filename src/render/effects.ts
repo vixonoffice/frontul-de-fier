@@ -246,6 +246,12 @@ class ShakeState {
   }
 }
 
+const BOLT_SEG = 10;
+interface Bolt {
+  outer: THREE.Mesh; inner: THREE.Mesh; life: number; maxLife: number; acc: number;
+  from: THREE.Vector3; to: THREE.Vector3;
+}
+
 export class EffectsSystem {
   readonly group = new THREE.Group();
   private readonly flash: ParticlePool;
@@ -266,7 +272,11 @@ export class EffectsSystem {
   private tracerCursor = 0;
   readonly tracerMesh: THREE.LineSegments;
 
+  private readonly camDir: THREE.Vector3;
+  private readonly bolts: Bolt[] = [];
+
   constructor(camDir: THREE.Vector3) {
+    this.camDir = camDir.clone().normalize();
     this.group.name = 'effects';
     const glow = softTexture(false);
     const dark = softTexture(true);
@@ -301,7 +311,12 @@ export class EffectsSystem {
     }
   }
 
-  muzzleFlash(x: number, y: number, z: number, weapon: 'shell' | 'rocket' | 'bullet'): void {
+  muzzleFlash(x: number, y: number, z: number, weapon: 'shell' | 'rocket' | 'bullet' | 'artillery'): void {
+    if (weapon === 'artillery') {
+      this.flash.spawn(x, y, z, { life: 0.14, size0: 1.8, size1: 0.2, color: 0xffc27a });
+      for (let i = 0; i < 3; i++) this.smoke.spawn(x, y, z, { life: 1.1, size0: 0.3, size1: 1.0, color: 0x6a655c, vy: 0.5, vx: (Math.random() - 0.5) * 0.5, vz: (Math.random() - 0.5) * 0.5 });
+      return;
+    }
     if (weapon === 'bullet') {
       this.flash.spawn(x, y, z, { life: 0.06, size0: 0.28, size1: 0.05, color: 0xffe9a8 });
       return;
@@ -310,6 +325,7 @@ export class EffectsSystem {
     this.flash.spawn(x, y, z, { life: 0.09, size0: 0.9, size1: 0.1, color });
     this.spark.spawn(x, y, z, { life: 0.25, size0: 0.15, size1: 0.02, color: 0xffe3a0, vx: (Math.random() - 0.5) * 2, vy: 1.5, vz: (Math.random() - 0.5) * 2 });
     const slot = this.lights[Math.floor(Math.random() * this.lights.length)];
+    slot.light.color.set(0xffb24a);
     slot.light.position.set(x, y + 0.2, z);
     slot.light.intensity = 6;
     slot.life = 0.08;
@@ -389,6 +405,89 @@ export class EffectsSystem {
       });
     }
     this.track.spawn(x, y + 0.012, z, { life: 7, size0: 0.5, size1: 0.5, color: 0x2a1c14 });
+  }
+
+  /** fulger Tesla: linie franta, luminoasa, scurta, cu palpaire de lumina si arsura la capat */
+  lightning(fx: number, fy: number, fz: number, tx: number, ty: number, tz: number): void {
+    let bolt = this.bolts.find((b) => b.life <= 0);
+    if (!bolt) {
+      const mk = (color: number, opacity: number): THREE.Mesh => {
+        const geo = new THREE.BufferGeometry();
+        geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array((BOLT_SEG + 1) * 2 * 3), 3));
+        const idx: number[] = [];
+        for (let i = 0; i < BOLT_SEG; i++) { const a = i * 2; idx.push(a, a + 1, a + 2, a + 1, a + 3, a + 2); }
+        geo.setIndex(idx);
+        const m = new THREE.Mesh(geo, new THREE.MeshBasicMaterial({ color, transparent: true, opacity, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false, side: THREE.DoubleSide }));
+        m.frustumCulled = false;
+        m.renderOrder = 8;
+        this.group.add(m);
+        return m;
+      };
+      bolt = { outer: mk(0x4aa8ff, 0.8), inner: mk(0xffffff, 1), life: 0, maxLife: 0.22, acc: 0, from: new THREE.Vector3(), to: new THREE.Vector3() };
+      this.bolts.push(bolt);
+    }
+    bolt.from.set(fx, fy, fz);
+    bolt.to.set(tx, ty, tz);
+    bolt.life = bolt.maxLife = 0.22;
+    bolt.acc = 0;
+    bolt.outer.visible = bolt.inner.visible = true;
+    this.shapeBolt(bolt);
+    this.flash.spawn(fx, fy, fz, { life: 0.14, size0: 1.0, size1: 0.2, color: 0x9fd4ff });
+    const slot = this.lights[Math.floor(Math.random() * this.lights.length)];
+    slot.light.color.set(0x8cc8ff);
+    slot.light.position.set(tx, ty + 0.5, tz);
+    slot.light.intensity = 12;
+    slot.life = 0.12;
+  }
+
+  private shapeBolt(b: Bolt): void {
+    const dir = new THREE.Vector3().subVectors(b.to, b.from);
+    const len = dir.length();
+    const side = new THREE.Vector3().crossVectors(dir, this.camDir).normalize();
+    if (side.lengthSq() < 0.5) side.set(1, 0, 0);
+    const pts: THREE.Vector3[] = [];
+    for (let i = 0; i <= BOLT_SEG; i++) {
+      const t = i / BOLT_SEG;
+      const p = new THREE.Vector3().lerpVectors(b.from, b.to, t);
+      if (i > 0 && i < BOLT_SEG) {
+        const j = Math.min(0.5, 0.12 * len) * (Math.random() - 0.5) * 2;
+        p.addScaledVector(side, j);
+        p.y += (Math.random() - 0.5) * 0.35;
+      }
+      pts.push(p);
+    }
+    for (const [mesh, w] of [[b.outer, 0.17], [b.inner, 0.06]] as const) {
+      const pos = mesh.geometry.getAttribute('position') as THREE.BufferAttribute;
+      for (let i = 0; i <= BOLT_SEG; i++) {
+        const taper = 1 - 0.4 * (i / BOLT_SEG);
+        const p = pts[i];
+        pos.setXYZ(i * 2, p.x - side.x * w * taper, p.y - side.y * w * taper, p.z - side.z * w * taper);
+        pos.setXYZ(i * 2 + 1, p.x + side.x * w * taper, p.y + side.y * w * taper, p.z + side.z * w * taper);
+      }
+      pos.needsUpdate = true;
+    }
+  }
+
+  /** impactul fulgerului: sclipire albastra, scantei, arsura */
+  teslaHit(x: number, y: number, z: number): void {
+    this.flash.spawn(x, y + 0.2, z, { life: 0.2, size0: 1.6, size1: 0.3, color: 0xbfe4ff });
+    for (let i = 0; i < 8; i++) {
+      const a = Math.random() * Math.PI * 2;
+      this.spark.spawn(x, y + 0.2, z, { life: 0.35, size0: 0.12, size1: 0.02, color: 0x9fd4ff, vx: Math.cos(a) * 2.6, vy: 1.5 + Math.random() * 1.5, vz: Math.sin(a) * 2.6 });
+    }
+    this.scorch.spawn(x, 0, z, { life: 12, size0: 1.0, size1: 1.0, color: 0x0a0a0a });
+    this.shake.trigger(0.12, 0.2);
+  }
+
+  /** obuz de artilerie: explozie mare cu pamant si foc + crater */
+  artilleryBlast(x: number, y: number, z: number, cameraDistance: number): void {
+    this.explosion(x, y, z, 1.35, cameraDistance);
+    for (let i = 0; i < 10; i++) {
+      const a = Math.random() * Math.PI * 2, v = 1.2 + Math.random() * 2.2;
+      this.dust.spawn(x, y + 0.1, z, { life: 0.9 + Math.random() * 0.5, size0: 0.35, size1: 1.0, color: 0x8a6a44, vx: Math.cos(a) * v, vy: 1.2 + Math.random() * 1.6, vz: Math.sin(a) * v });
+    }
+    this.scorch.spawn(x, 0, z, { life: 45, size0: 2.6, size1: 2.6, color: 0x140d08 });
+    this.track.spawn(x, 0.012, z, { life: 45, size0: 1.5, size1: 1.5, color: 0x3a2a1a });
   }
 
   /** abur la turnurile de racire */
@@ -502,6 +601,16 @@ export class EffectsSystem {
         this.tracerGeo.attributes.position.needsUpdate = true;
       }
     }
+    for (const b of this.bolts) {
+      if (b.life <= 0) continue;
+      b.life -= dt;
+      b.acc += dt;
+      if (b.life <= 0) { b.outer.visible = b.inner.visible = false; continue; }
+      if (b.acc > 0.04) { b.acc = 0; this.shapeBolt(b); }
+      const k = Math.min(1, b.life / b.maxLife * 1.6);
+      (b.outer.material as THREE.MeshBasicMaterial).opacity = 0.8 * k;
+      (b.inner.material as THREE.MeshBasicMaterial).opacity = k;
+    }
     for (const s of this.shockwaves) {
       if (s.life <= 0) { s.mesh.visible = false; continue; }
       s.life -= dt;
@@ -522,6 +631,7 @@ export class EffectsSystem {
     (this.debris.mesh.material as THREE.Material).dispose();
     this.tracerGeo.dispose();
     (this.tracerMesh.material as THREE.Material).dispose();
+    for (const b of this.bolts) { for (const m of [b.outer, b.inner]) { m.geometry.dispose(); (m.material as THREE.Material).dispose(); } }
     for (const s of this.shockwaves) { s.mesh.geometry.dispose(); (s.mesh.material as THREE.Material).dispose(); }
   }
 }

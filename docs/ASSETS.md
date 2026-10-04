@@ -55,3 +55,8 @@ vanzare, unitate gata pe tip de producator, avansare, strivire, curent insuficie
 ordine sunt ciripituri sintetizate cu zgomot filtrat, fara voce.
 
 Fara fisierele din `public/audio` (de exemplu in varianta intr-un singur fisier HTML) muzica lipseste in tacere, fara erori; efectele raman.
+
+## Etapa 4
+
+- heavyTank: reutilizeaza tank.glb (Quaternius Tank, CC0, https://poly.pizza/m/cW3zvvkMOM) la scara 1.32, cu doua tevi procedurale si tureta separata.
+- artillery, wall (segmente instantiate, varianta dupa vecini), tesla, radar, lab: procedurale (nu am cautat modele CC0 potrivite).
