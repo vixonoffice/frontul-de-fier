@@ -10,15 +10,15 @@ import { tipsEnabled, setTipsEnabled, resetSeenTips, onTipsChange } from './pref
 
 const TOUCH_HELP: [string, string][] = [
   ['Atinge o unitate', 'o selectezi. Dublu-atingere: selectezi toate unitățile de același fel de pe ecran.'],
-  ['Atinge harta', 'unitățile selectate merg acolo. Dacă atingi un inamic, îl atacă.'],
+  ['Atinge harta', 'unitățile selectate merg acolo. Dacă atingi un inamic, îl atacă. Cu tava deschisă, atingerea o închide.'],
   ['Țin apăsat și trag', 'chenar de selecție, pentru mai multe unități deodată.'],
-  ['Trag cu un deget', 'mut harta. Cu două degete (ciupit) apropii sau depărtez.'],
-  ['Radarul', 'atinge-l ca să muți camera în acel loc.'],
-  ['Bara de jos', 'Mută, Atacă-mergi, Stop. La recoltoare: Adună minereu. La bombardiere: Bombardează. La clădiri de producție: Punct de adunare.'],
-  ['Toată armata', 'selectează toate trupele de luptă.'],
-  ['Alertele', 'atinge „Baza e atacată” sau „recoltoare degeaba” ca să mergi acolo.'],
-  ['Construcții', 'atingi cardul, aștepți, atingi harta unde o vrei și confirmi cu „Construiește aici”.'],
-  ['Anulează', 'oricând, pe card: banii se întorc integral.'],
+  ['Trag cu un deget', 'mut harta. Cu două degete: mut harta și apropii sau depărtez (ciupit).'],
+  ['Radarul din colț', 'atinge-l ca să-l măreşti; mărit, atinge-l ca să muți camera. „–” îl micșorează.'],
+  ['Dock-ul de jos', 'Clădiri, Fabrică, Cazarmă, Aerodrom deschid o tavă cu pătrate. Armată selectează trupele, Bază te duce acasă.'],
+  ['Pătratele din tavă', 'atinge ca să începi. „x” anulează și primești banii înapoi. Apăsare lungă: descrierea.'],
+  ['Clădire gata', 'atinge pătratul ei, apoi atinge harta: se pune acolo, fără confirmare. Poți trage degetul ca să țintești și ridici ca să pui.'],
+  ['Selecție', 'rândul de deasupra dock-ului: Atacă, Stop, Adună minereu, Bombardează, Punct de adunare.'],
+  ['Vinde', 'selectează o clădire, „Vinde” apoi încă o atingere pentru confirmare. Primești jumătate din cost.'],
 ];
 const MOUSE_HELP: [string, string][] = [
   ['Click stânga', 'selectezi o unitate sau tragi un chenar peste mai multe. Dublu-click: toate de același fel.'],
@@ -27,7 +27,7 @@ const MOUSE_HELP: [string, string][] = [
   ['A', 'Atacă-mergi. S: Stop. H: înapoi la bază. Spațiu: la ultima alertă.'],
   ['Ctrl + 1…9', 'salvezi un grup; apoi 1…9 îl selectezi.'],
   ['P sau F10', 'pauză. Esc anulează ce ai început.'],
-  ['Construcții', 'click pe card, aștepți, click pe hartă. Click dreapta pe card anulează și primești banii înapoi.'],
+  ['Construcții', 'click pe pătrat, aștepți, click pe pătratul gata, apoi click pe hartă. „x” pe pătrat anulează și primești banii înapoi. Vinde: selectezi clădirea și apeși „Vinde” de două ori.'],
 ];
 
 export function initHelp(ctx: UiContext): UiModule {

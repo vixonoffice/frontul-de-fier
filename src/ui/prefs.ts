@@ -48,3 +48,11 @@ export function resetSeenTips() {
   write(K_SEEN, '');
   notify();
 }
+
+const K_MAP = 'fdf.radarMare';
+export function minimapBigPref(): boolean {
+  return read(K_MAP) === '1';
+}
+export function setMinimapBigPref(b: boolean) {
+  write(K_MAP, b ? '1' : '0');
+}

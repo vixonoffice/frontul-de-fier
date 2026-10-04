@@ -38,9 +38,12 @@ export interface UiContext {
   speed: 1 | 2;
   tool: Tool;
   placing: BuildingType | null;
-  /** Locul ales pe telefon, în așteptarea confirmării. */
-  placeTile: { tx: number; ty: number } | null;
-  buildTab: BuildTab;
+  /** Tabul deschis în tavă (null = tava e închisă). */
+  trayTab: BuildTab | null;
+  /** Mini-harta mărită? (se ține minte între sesiuni) */
+  minimapBig: boolean;
+  /** Spot respins, arătat roșu o clipă. */
+  ghostFlash: { tx: number; ty: number; until: number } | null;
   selection: EntityId[];
   groups: Map<number, EntityId[]>;
   lastEventPos: Vec | null;
@@ -54,11 +57,15 @@ export interface UiContext {
   startPlacing(type: BuildingType): void;
   /** Iese din modul de plasare; clădirea rămâne gata (banii NU se întorc). */
   cancelPlacing(): void;
-  setPlaceTile(tx: number, ty: number): void;
-  /** Încearcă plasarea clădirii la tile-ul dat. */
+  /** Încearcă plasarea clădirii la tile-ul dat; la spot nepotrivit arată fantoma roșie și rămâne în plasare. */
   tryPlaceAt(tx: number, ty: number): boolean;
-  confirmPlace(): void;
-  setBuildTab(t: BuildTab): void;
+  openTray(t: BuildTab): void;
+  closeTray(): void;
+  setMinimapBig(b: boolean): void;
+  /** Vinde o clădire proprie (comanda `sell`). */
+  sell(id: EntityId): void;
+  /** Cât primești dacă vinzi clădirea acum. */
+  sellValue(id: EntityId): number;
   selectArmy(): void;
   selectIdleHarvesters(): void;
   idleHarvesters(): EntityId[];
