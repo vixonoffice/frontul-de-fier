@@ -24,10 +24,16 @@ export function initToasts(ctx: UiContext): ToastsModule {
 
   let lastAttackToast = -1e9;
 
+  let lastReadyToast = -1e9;
+
   function handleEvent(e: SimEvent) {
     switch (e.type) {
       case 'unitReady':
-        if (e.team === ctx.localTeam) push(`${nameOf(e.unit)} gata.`);
+        // cu cozi lungi ies unități una după alta: un singur mesaj la câteva secunde, nu unul pentru fiecare
+        if (e.team === ctx.localTeam && performance.now() - lastReadyToast > 6000) {
+          lastReadyToast = performance.now();
+          push(`${nameOf(e.unit)} gata.`);
+        }
         break;
       case 'sold':
         if (e.team === ctx.localTeam) push(`${nameOf(e.building)} vândută: +${e.refund} credite.`);
