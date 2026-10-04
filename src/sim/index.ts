@@ -16,6 +16,7 @@ import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, u
 import { findPath } from './path';
 import { issueMoveOrder, stepMovement } from './movement';
 import { runAI } from './ai';
+import { runAssist } from './assist';
 import { commandAir, isAir, updateAllBombers } from './air';
 import { UNITS } from '../data/units';
 import { center, sortedBuildingIds, sortedUnitIds } from './entities';
@@ -80,8 +81,14 @@ function filterOwnIds(world: World, team: Team, ids: readonly EntityId[]): Entit
   });
 }
 
-function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
+const PLAYER_ORDER_CMDS = new Set(['move', 'attack', 'attackMove', 'stop', 'harvest', 'bomb']);
+
+function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssist = false): void {
   const internal = getInternal(world);
+  // comenzile explicite ale jucătorului sunt memorate: asistentul nu mai atinge unitatea ~10 s
+  if (!fromAssist && PLAYER_ORDER_CMDS.has(cmd.t)) {
+    for (const id of (cmd as { ids: number[] }).ids) internal.lastPlayerCmd.set(id, world.tick);
+  }
   switch (cmd.t) {
     case 'move': {
       const ids = filterOwnIds(world, cmd.team, cmd.ids);
@@ -174,10 +181,13 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       handleBuildCancel(world, cmd.team);
       break;
     case 'train':
-      handleTrain(world, cmd.team, cmd.unit);
+      handleTrain(world, cmd.team, cmd.unit, cmd.count ?? 1);
       break;
     case 'trainCancel':
-      handleTrainCancel(world, cmd.team, cmd.unit);
+      handleTrainCancel(world, cmd.team, cmd.unit, cmd.all ?? false);
+      break;
+    case 'assist':
+      world.players[cmd.team].assist[cmd.mode] = cmd.on;
       break;
     case 'sell':
       handleSell(world, cmd.team, cmd.id);
@@ -213,6 +223,7 @@ export function step(world: World, commands: Command[]): void {
 
   for (const cmd of commands) applyCommand(world, cmd, blocked);
   if (world.winner === null) {
+    for (const cmd of runAssist(world, internal)) applyCommand(world, cmd, blocked, true);
     const aiCommands = runAI(world, internal, DT);
     for (const cmd of aiCommands) applyCommand(world, cmd, blocked);
   }
@@ -282,8 +293,9 @@ export function hash(world: World): number {
   for (const p of world.players) {
     h = mix(h, Math.round(p.credits * 1000));
     h = mix(h, p.production.units.length * 100 + p.production.infantry.length * 10 + p.production.air.length);
+    h = mix(h, (p.assist.economy ? 1 : 0) | (p.assist.defense ? 2 : 0) | (p.assist.attack ? 4 : 0));
     for (const q of [p.production.units, p.production.infantry, p.production.air]) {
-      if (q[0]) h = mix(h, Math.round(q[0].progress * 1000));
+      if (q[0]) { h = mix(h, Math.round(q[0].progress * 1000)); h = mix(h, q[0].paid ? 1 : 0); }
     }
     h = mix(h, p.defeated ? 1 : 0);
   }

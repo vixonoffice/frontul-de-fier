@@ -43,6 +43,18 @@ export interface AIMemory {
   bombTimer: number;            // secunde până la următorul raid aerian
 }
 
+/** Memoria asistentului unui jucător (în afara contractului). */
+export interface AssistMem {
+  known: Map<EntityId, { x: number; y: number }>; // clădiri inamice văzute
+  lastEvent: { economy: number; defense: number; attack: number }; // tick-ul ultimului eveniment 'assist' (throttle)
+  econWant: { type: string; cost: number } | null; // clădirea pe care economia o așteaptă (rezervă pentru atac)
+  waves: number;                                   // câte atacuri a lansat
+  attackTarget: { x: number; y: number } | null;
+  defending: Map<EntityId, { hx: number; hy: number }>; // unități trimise la apărare, care se întorc apoi
+  airSeen: boolean;
+  startedBuild: boolean;                           // clădirea din slot a fost pornită de asistent (doar pe aia o plasează singur)
+}
+
 export interface Internal {
   harvest: Map<EntityId, HarvestState>;
   oreReserved: Map<number, number>;
@@ -51,6 +63,8 @@ export interface Internal {
   lastUnderAttackTick: Map<Team, number>;
   projectileWeapon: Map<EntityId, WeaponDef>; // arma care a lansat proiectilul (daună/splash reale)
   bomber: Map<EntityId, BomberState>;
+  assist: Map<Team, AssistMem>;
+  lastPlayerCmd: Map<EntityId, number>;       // ultimul tick în care jucătorul a dat o comandă explicită unității
   lastDamageTick: Map<EntityId, number>;      // ultimul tick în care unitatea a primit daună
   nextGroupMoveSeq: number;
 }
@@ -68,6 +82,8 @@ export function getInternal(world: object): Internal {
       lastUnderAttackTick: new Map(),
       projectileWeapon: new Map(),
       bomber: new Map(),
+      assist: new Map(),
+      lastPlayerCmd: new Map(),
       lastDamageTick: new Map(),
       nextGroupMoveSeq: 0,
     };
@@ -104,4 +120,16 @@ export function getBomberState(internal: Internal, id: EntityId): BomberState {
     internal.bomber.set(id, s);
   }
   return s;
+}
+
+export function getAssistMem(internal: Internal, team: Team): AssistMem {
+  let m = internal.assist.get(team);
+  if (!m) {
+    m = {
+      known: new Map(), lastEvent: { economy: -1e9, defense: -1e9, attack: -1e9 }, econWant: null,
+      waves: 0, attackTarget: null, defending: new Map(), airSeen: false, startedBuild: false,
+    };
+    internal.assist.set(team, m);
+  }
+  return m;
 }

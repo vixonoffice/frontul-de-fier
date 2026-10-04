@@ -1,7 +1,7 @@
 // Recoltare (mașină de stări pe recoltor) și producție (clădiri + coadă de unități).
 import type { Building, BuildingType, Player, ProducerType, Team, Unit, UnitType, Vec, World } from './types';
 import { TERRAIN_GROUND } from './types';
-import { UNITS, STARTING_CREDITS, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
+import { UNITS, STARTING_CREDITS, MAX_QUEUE, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
 import { BUILDINGS, MAX_BUILD_DISTANCE, SELL_REFUND } from '../data/buildings';
 import type { Internal } from './internal';
 import { getHarvestState } from './internal';
@@ -302,8 +302,6 @@ export function handleSell(world: World, team: Team, id: number): void {
   world.events.push({ type: 'sold', team, id, building: b.type, x: b.tx + b.w / 2, y: b.ty + b.h / 2, refund });
 }
 
-const MAX_QUEUE = 5;
-
 function hasBuilding(world: World, team: Team, type: BuildingType): boolean {
   for (const b of world.buildings.values()) if (b.team === team && b.type === type) return true;
   return false;
@@ -325,25 +323,35 @@ export function bomberCapReached(world: World, team: Team): boolean {
   return n >= airfields * BOMBERS_PER_AIRFIELD;
 }
 
-export function handleTrain(world: World, team: Team, type: UnitType): void {
+/**
+ * Pune în coadă `count` unități (implicit 1) FĂRĂ să le plătească: fiecare se plătește abia când îi vine rândul
+ * (vezi updateProduction). Respectă clădirea producătoare, MAX_QUEUE și limita de bombardiere.
+ */
+export function handleTrain(world: World, team: Team, type: UnitType, count = 1): void {
   const p = world.players[team];
   const def = UNITS[type];
   const queue = queueFor(p, def.producedAt);
-  if (!hasBuilding(world, team, def.producedAt) || p.credits < def.cost || queue.length >= MAX_QUEUE) return;
-  if (type === 'bomber' && bomberCapReached(world, team)) return;
-  p.credits -= def.cost;
-  queue.push({ type, progress: 0, ready: false, paid: true });
+  if (!hasBuilding(world, team, def.producedAt)) return;
+  let n = Math.max(0, Math.min(Math.floor(count), MAX_QUEUE - queue.length));
+  if (type === 'bomber') {
+    let airfields = 0;
+    for (const b of world.buildings.values()) if (b.team === team && b.type === 'airfield') airfields++;
+    let have = queue.length;
+    for (const u of world.units.values()) if (u.team === team && u.type === 'bomber') have++;
+    n = Math.min(n, Math.max(0, airfields * BOMBERS_PER_AIRFIELD - have));
+  }
+  for (let i = 0; i < n; i++) queue.push({ type, progress: 0, ready: false, paid: false });
 }
 
-export function handleTrainCancel(world: World, team: Team, type: UnitType): void {
+/** Scoate ultimul slot de acest tip (sau toate, cu `all`); rambursează integral doar sloturile deja plătite. */
+export function handleTrainCancel(world: World, team: Team, type: UnitType, all = false): void {
   const p = world.players[team];
   const queue = queueFor(p, UNITS[type].producedAt);
   for (let i = queue.length - 1; i >= 0; i--) {
-    if (queue[i].type === type) {
-      p.credits += UNITS[type].cost;
-      queue.splice(i, 1);
-      return;
-    }
+    if (queue[i].type !== type) continue;
+    if (queue[i].paid) p.credits += UNITS[type].cost;
+    queue.splice(i, 1);
+    if (!all) return;
   }
 }
 
@@ -372,6 +380,13 @@ export function updateProduction(world: World, internal: Internal, blocked: Uint
       for (const b of world.buildings.values()) if (b.team === p.team && b.type === kind) { prod = b; break; }
       if (!prod) continue;
       const head = queue[0];
+      if (!head.paid) {
+        // plata se face când unitatea ajunge prima în coadă; fără bani, așteaptă la progres 0
+        const cost = UNITS[head.type].cost;
+        if (p.credits < cost) continue;
+        p.credits -= cost;
+        head.paid = true;
+      }
       head.progress += dt / UNITS[head.type].buildTime;
       if (head.progress < 1) continue;
       if (kind === 'airfield') {
