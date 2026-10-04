@@ -6,7 +6,7 @@ import { iconSvg } from './icons';
 import { BUILDINGS } from '../data/buildings';
 import { UNITS } from '../data/units';
 import { BUILD_LIST, UNIT_GROUPS, PRODUCERS, nameOf } from './buildData';
-import { tipsEnabled, setTipsEnabled, resetSeenTips, onTipsChange, assistFeedOn, setAssistFeed } from './prefs';
+import { tipsEnabled, setTipsEnabled, resetSeenTips, onTipsChange, assistFeedOn, setAssistFeed, soundPrefs, setSoundPrefs, onSoundChange } from './prefs';
 
 const TOUCH_HELP: [string, string][] = [
   ['Atinge o unitate', 'o selectezi. Dublu-atingere: selectezi toate unitățile de același fel de pe ecran.'],
@@ -20,6 +20,10 @@ const TOUCH_HELP: [string, string][] = [
   ['Selecție', 'rândul de deasupra dock-ului: Atacă, Stop, Adună minereu, Bombardează, Punct de adunare.'],
   ['Asistent', 'butonul Asistent din dock are trei comutatoare: Dezvoltare bază, Apărare și Atac (producție de armată). Se pornesc independent și îți construiesc baza din banii pe care îi ai. Armata o conduci tot tu. Lămpile de pe buton arată ce e pornit.'],
   ['Gardă și atac', 'fiecare unitate de luptă e fie în forța de atac, fie în gardă. Garda ține un post lângă bază și merge singură unde e atacată o clădire sau un recoltor, apoi se întoarce. Forța de atac pleacă în ofensive. „Armată” din dock selectează grupurile, iar „Pune în gardă” / „Pune la atac” le mută. Pentru ofensivă totală alegi „Toată armata” și atingi ținta.'],
+  ['Toți contra tuturor', 'Toți sunt împotriva tuturor. Câștigă ultimul rămas. Punctele colorate din bara de sus arată cine mai e în joc.'],
+  ['Curent', 'clădirile consumă curent, iar Centrala îl produce. Când consumul e mai mare decât producția (contorul de sus se face roșu), producția și turelele merg la jumătate. Atinge contorul ca să afli mai multe.'],
+  ['Reparații și grade', '„Repară” pe o clădire selectată o repară cu bani, pe măsură ce își recapătă viața. Unitățile care distrug destule ținte devin Veteran și apoi Elită: mai puternice și mai rezistente.'],
+  ['Perimetrul asistentului', 'asistentul își alege singur locul pentru clădiri, în jurul bazei: rafinării și producție în spate, turele spre margine. Poți oricând să mai pui tu clădiri.'],
   ['Cozi lungi', 'în tava unei clădiri de producție, butonul ×1 / ×5 / ×25 spune câte pui la coadă la o atingere. Poți pune până la 99 în coadă. Plătești fiecare unitate abia când îi vine rândul. „x” scoate una; ține apăsat pe „x” ca să le scoți pe toate.'],
   ['Vinde', 'selectează o clădire, „Vinde” apoi încă o atingere pentru confirmare. Primești jumătate din cost.'],
 ];
@@ -85,6 +89,53 @@ export function initHelp(ctx: UiContext): UiModule {
     syncFeed();
   });
 
+  // --- sunet ---
+  el('h3', { text: 'Sunet', parent: body });
+  const sndBox = el('div', { className: 'help-tips', parent: body });
+  const sliders: { key: 'master' | 'music' | 'sfx'; input: HTMLInputElement; out: HTMLElement }[] = [];
+  for (const [key, label] of [['master', 'Volum general'], ['music', 'Muzică'], ['sfx', 'Efecte']] as const) {
+    const row = el('label', { className: 'slider-row', parent: sndBox });
+    row.innerHTML = `<span>${label}</span><input type="range" min="0" max="100" step="1" id="vol-${key}" aria-label="${label}"><b class="tabular"></b>`;
+    const input = row.querySelector('input') as HTMLInputElement;
+    const out = row.querySelector('b') as HTMLElement;
+    input.addEventListener('input', () => {
+      setSoundPrefs({ [key]: Number(input.value) / 100 });
+      out.textContent = `${input.value}%`;
+    });
+    // un clic scurt de probă la ridicarea degetului, ca să se audă nivelul
+    input.addEventListener('change', () => ctx.sfx('click'));
+    sliders.push({ key, input, out });
+  }
+  const mkSwitch = (id: string, label: string, get: () => boolean, set: (v: boolean) => void) => {
+    const sw = el('button', { className: 'switch', attrs: { type: 'button', role: 'switch', id }, parent: sndBox }) as HTMLButtonElement;
+    sw.innerHTML = `<i class="knob"></i><span>${label}</span><b></b>`;
+    const paint = () => {
+      const on = get();
+      sw.classList.toggle('on', on);
+      sw.setAttribute('aria-checked', on ? 'true' : 'false');
+      (sw.querySelector('b') as HTMLElement).textContent = on ? 'Da' : 'Nu';
+    };
+    sw.addEventListener('click', () => {
+      set(!get());
+      paint();
+      ctx.sfx(get() ? 'on' : 'off');
+    });
+    return paint;
+  };
+  const paintMute = mkSwitch('muteSwitch', 'Sunet oprit (mut)', () => soundPrefs().mute, (v) => setSoundPrefs({ mute: v }));
+  const paintVib = mkSwitch('vibSwitch', 'Vibrații', () => soundPrefs().vibrate, (v) => setSoundPrefs({ vibrate: v }));
+  const syncSound = () => {
+    const p = soundPrefs();
+    for (const s of sliders) {
+      s.input.value = String(Math.round(p[s.key] * 100));
+      s.out.textContent = `${s.input.value}%`;
+    }
+    paintMute();
+    paintVib();
+  };
+  syncSound();
+  const unsubSnd = onSoundChange(syncSound);
+
   // --- comenzi ---
   function section(title: string): HTMLElement {
     el('h3', { text: title, parent: body });
@@ -126,6 +177,7 @@ export function initHelp(ctx: UiContext): UiModule {
     ctx.paused = true;
     syncSwitch();
     syncFeed();
+    syncSound();
     overlay.classList.add('show');
     body.scrollTop = 0;
   }
@@ -158,6 +210,7 @@ export function initHelp(ctx: UiContext): UiModule {
   }
   function dispose() {
     unsub();
+    unsubSnd();
     ctx.root.removeEventListener('fdf-help', onHelp);
     window.removeEventListener('keydown', onKey);
     overlay.remove();

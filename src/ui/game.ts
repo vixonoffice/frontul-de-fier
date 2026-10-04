@@ -2,7 +2,8 @@
 // tuturor submodulelor (bară de sus, minihartă, panou de construcție, input, ecrane, sfaturi).
 import { TICK_RATE, type Command, type Difficulty, type GameSetup, type SimAPI, type Team, type SimEvent } from '../sim/types';
 import type { CreateRenderer } from '../render/api';
-import type { UiContext, UiModule, GameStats } from './context';
+import type { UiContext, UiModule, GameStats, RestartMode } from './context';
+import type { MatchPrefs } from './prefs';
 import { el } from './dom';
 import { initTopbar } from './topbar';
 import { initMinimap } from './minimap';
@@ -37,8 +38,15 @@ export interface StartGameOptions {
   difficulty?: Difficulty;
   /** Sare peste ecranul de start (la "Joacă din nou"). */
   autoStart?: boolean;
+  /** Setările meciului și sămânța (pentru ecranul de final și repornire). */
+  match: MatchPrefs;
+  seed: number;
+  /** Pornește asistentul de dezvoltare de la început. */
+  startAssist?: boolean;
   /** Cere pornirea unui meci nou, fără reîncărcarea paginii. */
-  onRestart?: (difficulty: Difficulty) => void;
+  onRestart?: (mode: RestartMode, match: MatchPrefs, seed: number) => void;
+  /** Jucătorul a apăsat Începe pe ecranul de setări. */
+  onStart?: (match: MatchPrefs, o: { assist: boolean }) => void;
 }
 
 const TICK_DT = 1 / TICK_RATE;
@@ -87,6 +95,11 @@ export function startGame(opts: StartGameOptions): GameHandle {
     started: !!opts.autoStart,
     helpOpen: false,
     difficulty: opts.difficulty ?? aiDiff,
+    seed: opts.seed,
+    match: opts.match,
+    musicForce: null,
+    musicMood: 'calm',
+    lowPowerSeen: false,
     speed: 1,
     tool: null,
     placing: null,
@@ -191,6 +204,12 @@ export function startGame(opts: StartGameOptions): GameHandle {
     sfx() {
       /* suprascris de modulul audio */
     },
+    ack() {
+      /* suprascris de modulul audio */
+    },
+    haptic() {
+      /* suprascris de modulul audio */
+    },
     togglePause() {
       if (ctx.gameOver) return;
       ctx.paused = !ctx.paused;
@@ -202,11 +221,16 @@ export function startGame(opts: StartGameOptions): GameHandle {
       ctx.difficulty = d;
       for (const p of world.players) if (p.isAI) p.difficulty = d;
     },
-    restart() {
-      if (opts.onRestart) opts.onRestart(ctx.difficulty);
+    restart(mode = 'new') {
+      if (opts.onRestart) opts.onRestart(mode, opts.match, opts.seed);
       else location.reload();
     },
+    startMatch(m, o) {
+      if (opts.onStart) opts.onStart(m, o);
+    },
   };
+
+  if (opts.startAssist) ctx.queueCommand({ t: 'assist', team: localTeam, mode: 'economy', on: true });
 
   if (import.meta.env.DEV) (window as unknown as { __fdf: UiContext }).__fdf = ctx;
 

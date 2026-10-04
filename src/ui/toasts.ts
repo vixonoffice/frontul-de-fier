@@ -35,6 +35,19 @@ export function initToasts(ctx: UiContext): ToastsModule {
           push(`${nameOf(e.unit)} gata.`);
         }
         break;
+      case 'promoted': {
+        if (e.team !== ctx.localTeam) break;
+        const u = ctx.world.units.get(e.id);
+        push(`${u ? nameOf(u.type) : 'Unitate'} avansat la ${e.rank === 2 ? 'Elită' : 'Veteran'}`);
+        break;
+      }
+      case 'lowPower':
+        if (e.team !== ctx.localTeam) break;
+        if (e.on) {
+          ctx.lowPowerSeen = true;
+          push('Curent insuficient: producția și turelele merg la jumătate. Construiește o Centrală.', 'bad');
+        } else push('Curentul e din nou suficient.');
+        break;
       case 'sold':
         if (e.team === ctx.localTeam) push(`${nameOf(e.building)} vândută: +${e.refund} credite.`);
         break;

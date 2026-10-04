@@ -1,43 +1,51 @@
-// Punctul de intrare real al jocului. La integrare, src/sim/index.ts și src/render/index.ts
-// (placeholder-ele din ramura `ui`) vor fi înlocuite de orchestrator cu implementările adevărate
-// ale simulării și randării — restul acestui fișier nu se schimbă.
+// Punctul de intrare real al jocului. Meciul se construiește din alegerile de pe ecranul de start
+// (adversari, dificultate, hartă, mărime); fiecare meci primește o sămânță proaspătă.
 import './ui/style.css';
 import { startGame, type GameHandle } from './ui/game';
 import { sim } from './sim';
 import { createRenderer } from './render';
-import type { Difficulty, GameSetup } from './sim/types';
+import type { GameSetup, Team } from './sim/types';
+import { matchPrefs, setMatchPrefs, type MatchPrefs } from './ui/prefs';
 
 const root = document.getElementById('app');
 if (!root) throw new Error('lipsește elementul #app din index.html');
 const appRoot = root;
 
-function makeSetup(difficulty: Difficulty): GameSetup {
-  return {
-    seed: (Date.now() & 0xffffffff) >>> 0,
-    mapSize: { w: 80, h: 80 },
-    players: [
-      { team: 0, isAI: false, difficulty },
-      { team: 1, isAI: true, difficulty },
-    ],
-  };
+function newSeed(): number {
+  return 1 + Math.floor(Math.random() * 99999);
+}
+
+function makeSetup(m: MatchPrefs, seed: number): GameSetup {
+  const players: GameSetup['players'] = [{ team: 0, isAI: false, difficulty: m.difficulty }];
+  for (let i = 1; i <= m.opponents; i++) players.push({ team: i as Team, isAI: true, difficulty: m.difficulty });
+  return { seed, mapSize: { w: m.size, h: m.size }, players, mapStyle: m.map };
 }
 
 let handle: GameHandle | null = null;
 
-/** Pornește un meci. "Joacă din nou" îl repornește aici, fără să reîncarce pagina. */
-function launch(difficulty: Difficulty, autoStart: boolean) {
+/** Pornește un meci. Repornirile se fac aici, fără să reîncarce pagina. */
+function launch(m: MatchPrefs, seed: number, autoStart: boolean, assist = false) {
   handle?.destroy();
   handle = startGame({
     root: appRoot,
     sim,
     createRenderer,
-    setup: makeSetup(difficulty),
+    setup: makeSetup(m, seed),
     localTeam: 0,
-    difficulty,
+    difficulty: m.difficulty,
+    match: m,
+    seed,
     autoStart,
-    // la repornire: ținem dificultatea aleasă și sărim peste ecranul de start
-    onRestart: (d) => launch(d, true),
+    startAssist: assist,
+    onStart: (choice, o) => {
+      setMatchPrefs(choice);
+      launch(choice, newSeed(), true, o.assist);
+    },
+    onRestart: (mode, match, oldSeed) => {
+      if (mode === 'setup') launch(matchPrefs(), newSeed(), false);
+      else launch(match, mode === 'same' ? oldSeed : newSeed(), true);
+    },
   });
 }
 
-launch('easy', false);
+launch(matchPrefs(), newSeed(), false);

@@ -2,6 +2,7 @@
 // Nu e un contract de integrare (ca sim/types.ts sau render/api.ts) — e intern lui src/ui.
 import type { World, SimAPI, Command, Team, EntityId, BuildingType, Vec, SimEvent, Difficulty, ProducerType } from '../sim/types';
 import type { RenderAPI } from '../render/api';
+import type { MatchPrefs } from './prefs';
 
 export interface GameStats {
   startTick: number;
@@ -15,7 +16,9 @@ export type ToastKind = 'info' | 'bad';
 /** Unealta armată: următoarea atingere pe hartă execută ordinul, apoi unealta se stinge. */
 export type Tool = 'attackMove' | 'harvest' | 'bomb' | 'rally' | null;
 export type BuildTab = 'buildings' | ProducerType | 'assist' | 'army';
-export type SfxName = 'click' | 'error' | 'ok' | 'cancel';
+export type SfxName = 'click' | 'error' | 'ok' | 'cancel' | 'open' | 'close' | 'on' | 'off';
+export type AckKind = 'move' | 'attack' | 'harvest' | 'bomb' | 'guard';
+export type RestartMode = 'new' | 'same' | 'setup';
 
 export interface UiContext {
   readonly root: HTMLElement;
@@ -35,6 +38,13 @@ export interface UiContext {
   started: boolean;
   helpOpen: boolean;
   difficulty: Difficulty;
+  /** Sămânța hărții curente și setările meciului. */
+  readonly seed: number;
+  readonly match: MatchPrefs;
+  /** Forțează starea muzicii (doar pentru dezvoltare / test). */
+  musicForce: 'calm' | 'tense' | null;
+  musicMood: 'calm' | 'tense';
+  lowPowerSeen: boolean;
   speed: 1 | 2;
   tool: Tool;
   placing: BuildingType | null;
@@ -74,11 +84,16 @@ export interface UiContext {
   centerBase(): void;
   toast(msg: string, kind?: ToastKind): void;
   sfx(name: SfxName): void;
+  /** Confirmare radio scurtă la un ordin (cel mult una la ~1,2 s). */
+  ack(kind: AckKind): void;
+  haptic(kind: 'tick' | 'error' | 'big'): void;
   togglePause(): void;
   setSpeed(speed: 1 | 2): void;
   setDifficulty(d: Difficulty): void;
-  /** Pornește un meci nou fără reîncărcarea paginii. */
-  restart(): void;
+  /** Pornește un meci nou fără reîncărcarea paginii: nou (sămânță nouă), aceeași hartă sau înapoi la setări. */
+  restart(mode?: RestartMode): void;
+  /** Pornește meciul ales pe ecranul de start. */
+  startMatch(m: MatchPrefs, opts: { assist: boolean }): void;
 }
 
 /** Funcție de teardown înregistrată de un submodul (listeners, intervale etc.). */

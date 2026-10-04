@@ -49,8 +49,8 @@ export function initMinimap(ctx: UiContext): UiModule {
   const TEAM_RGB: Record<number, [number, number, number]> = {
     0: [90, 180, 255],
     1: [255, 80, 60],
-    2: [140, 230, 130],
-    3: [240, 190, 70],
+    2: [255, 210, 58],
+    3: [84, 209, 122],
   };
 
   function drawBg() {

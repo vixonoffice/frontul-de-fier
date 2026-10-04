@@ -3,7 +3,9 @@
 import type { UiContext, UiModule, Tool } from './context';
 import { el } from './dom';
 import { iconSvg } from './icons';
-import { nameOf, canShoot } from './buildData';
+import { nameOf, canShoot, canHarvest } from './buildData';
+import { BUILDINGS } from '../data/buildings';
+import { REPAIR_COST_FACTOR } from '../data/units';
 import type { UnitType, Unit, Building, EntityId } from '../sim/types';
 
 const PROMPT: Record<Exclude<Tool, null>, string> = {
@@ -71,6 +73,17 @@ export function initCommandBar(ctx: UiContext): UiModule {
   };
   addBtn('guard', 'shield', 'Pune în gardă', roleCmd('guard'));
   addBtn('toattack', 'target', 'Pune la atac', roleCmd('attack'));
+  const repairBtn = addBtn('repair', 'bolt', 'Repară', () => {
+    const b = ctx.selection.length === 1 ? ctx.world.buildings.get(ctx.selection[0]) : undefined;
+    if (!b || b.team !== ctx.localTeam) return;
+    if (!b.repairing && b.hp >= b.maxHp) {
+      ctx.toast('Clădirea e întreagă.');
+      return;
+    }
+    ctx.sfx(b.repairing ? 'off' : 'on');
+    ctx.queueCommand({ t: 'repair', team: ctx.localTeam, id: b.id, on: !b.repairing });
+  });
+  const repairLabel = repairBtn.querySelector('span') as HTMLElement;
   const sellBtn = addBtn('sell', 'coin', 'Vinde', () => {
     const id = sellTargetId();
     if (id === null) return;
@@ -121,10 +134,18 @@ export function initCommandBar(ctx: UiContext): UiModule {
     }
     const fighters = units.filter((u) => u.type !== 'harvester');
     const hasProducer = blds.some((b) => b.type === 'factory' || b.type === 'barracks' || b.type === 'airfield');
-    const hasHarv = units.some((u) => u.type === 'harvester');
+    const hasHarv = units.some((u) => canHarvest(u.type));
     const hasBomber = units.some((u) => u.type === 'bomber');
     const hasShooter = units.some((u) => canShoot(u.type));
     const sellId = sellTargetId();
+    const ownBuilding = ctx.selection.length === 1 && blds.length === 1 && blds[0].team === ctx.localTeam ? blds[0] : null;
+    if (ownBuilding) {
+      // costul estimat al unei reparații complete, după viața lipsă
+      const cost = Math.ceil(BUILDINGS[ownBuilding.type].cost * REPAIR_COST_FACTOR * (1 - ownBuilding.hp / ownBuilding.maxHp));
+      const t = ownBuilding.repairing ? 'Repar…' : cost > 0 ? `Repară ~${cost}` : 'Repară';
+      if (repairLabel.textContent !== t) repairLabel.textContent = t;
+      repairBtn.classList.toggle('on', !!ownBuilding.repairing);
+    }
     if (ctx.tool === 'rally' && !hasProducer) ctx.setTool(null);
     else if (ctx.tool === 'attackMove' && !hasShooter) ctx.setTool(null);
     else if (ctx.tool === 'harvest' && !hasHarv) ctx.setTool(null);
@@ -152,8 +173,14 @@ export function initCommandBar(ctx: UiContext): UiModule {
       }
       const parts: string[] = [];
       for (const [t, n] of byType) parts.push(`${iconSvg(t)}<b>${n}×</b>`);
+      if (units.length === 1 && blds.length === 0) {
+        const u = units[0];
+        const rk = u.rank ?? 0;
+        const kl = u.kills ?? 0;
+        parts.push(`<span class="ci-rank" title="Grad">${iconSvg('chevron').repeat(rk)}${rk === 2 ? 'Elită' : rk === 1 ? 'Veteran' : 'Recrut'}</span><span class="ci-kills tabular">${kl} distrugeri</span>`);
+      }
       for (const b of blds) {
-        parts.push(`${iconSvg(b.type)}<b>${nameOf(b.type)}</b>`);
+        parts.push(`${iconSvg(b.type)}`);
         hp += b.hp;
         max += b.maxHp;
       }
@@ -161,7 +188,7 @@ export function initCommandBar(ctx: UiContext): UiModule {
       if (guards) parts.push(`${iconSvg('shield')}<b>${guards}</b>`);
       const pct = max > 0 ? Math.round((hp / max) * 100) : 100;
       const col = pct > 55 ? 'var(--ok)' : pct > 28 ? 'var(--amber)' : 'var(--red)';
-      infoHtml = `${parts.slice(0, 4).join('')}<span class="ci-hp tabular" style="color:${col}">${pct}%</span>`;
+      infoHtml = `${parts.slice(0, 6).join('')}<span class="ci-hp tabular" style="color:${col}">${pct}%</span>`;
     }
     setInfo(infoHtml);
 
@@ -172,6 +199,7 @@ export function initCommandBar(ctx: UiContext): UiModule {
       bomb: showSel && hasBomber,
       rally: showSel && hasProducer && !units.length,
       sell: showSel && sellId !== null,
+      repair: showSel && ownBuilding !== null,
       guard: showSel && fighters.some((u) => u.role !== 'guard'),
       toattack: showSel && fighters.some((u) => u.role === 'guard'),
     };
