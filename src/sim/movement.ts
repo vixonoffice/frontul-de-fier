@@ -228,8 +228,8 @@ function tryPush(u: Unit, dx: number, dy: number, blocked: Uint8Array, w: number
 // ================= comenzi de deplasare în grup (formație + flow field) =================
 
 const GROUP_FLOW_THRESHOLD = 6;
-const VEHICLE_SPACING = 0.95;   // distanța dintre vehicule în formație
-const INFANTRY_SPACING = 0.55;  // distanța dintre infanteriști
+const VEHICLE_SPACING = 1.2;   // distanța dintre vehicule în formație
+const INFANTRY_SPACING = 0.65;  // distanța dintre infanteriști
 /** Rânduri: tancurile în față, apoi lansatoare/antitanc, infanteria (fragilă) în spate. */
 const TIER: Partial<Record<UnitType, number>> = { tank: 0, warHarvester: 0, harvester: 0, rocket: 1, bazooka: 1, soldier: 2 };
 
