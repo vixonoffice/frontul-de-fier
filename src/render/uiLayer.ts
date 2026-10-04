@@ -6,6 +6,8 @@ import type { EntityId, Team, BuildingType } from '../sim/types';
 import type { Ghost } from './api';
 import { cameraDirConstant } from './camera';
 import { MODEL_FACTORY, TEAM_COLORS } from './models';
+import { instantiate, assetsVersion } from './assets';
+import { BUILDINGS } from '../data/buildings';
 
 function billboardQuat(): THREE.Quaternion {
   const m = new THREE.Matrix4().lookAt(cameraDirConstant(), new THREE.Vector3(), new THREE.Vector3(0, 1, 0));
@@ -98,6 +100,9 @@ export class UILayer {
   private readonly pulses: PulseSlot[] = [];
   private ghostObj: THREE.Group | null = null;
   private ghostType: BuildingType | null = null;
+  private ghostVersion = -1;
+  private ghostTeam: Team | null = null;
+  private ghostIsReal = false;
   private ghostFootprint: THREE.Mesh | null = null;
 
   constructor() {
@@ -163,9 +168,13 @@ export class UILayer {
       if (this.ghostFootprint) this.ghostFootprint.visible = false;
       return;
     }
-    if (this.ghostType !== ghost.type) {
+    if (this.ghostType !== ghost.type || this.ghostVersion !== assetsVersion || this.ghostTeam !== team) {
       if (this.ghostObj) { this.group.remove(this.ghostObj); this.disposeGhostModel(this.ghostObj); }
-      const model = MODEL_FACTORY[ghost.type](team);
+      // modelul real daca e incarcat; clona are materialele inlocuite mai jos, deci nu strica cache-ul
+      const real = instantiate(ghost.type, team);
+      const model = real ? real.obj : MODEL_FACTORY[ghost.type](team);
+      const isReal = !!real;
+      this.ghostIsReal = isReal;
       model.traverse((c) => {
         if (c instanceof THREE.Mesh) {
           const m = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.38, depthWrite: false, toneMapped: false });
@@ -175,6 +184,8 @@ export class UILayer {
       });
       this.ghostObj = model;
       this.ghostType = ghost.type;
+      this.ghostVersion = assetsVersion;
+      this.ghostTeam = team;
       this.group.add(model);
       if (!this.ghostFootprint) {
         const geo = new THREE.PlaneGeometry(1, 1);
@@ -201,7 +212,8 @@ export class UILayer {
   }
 
   private sizeFor(type: BuildingType): { w: number; h: number } {
-    return type === 'turret' ? { w: 1, h: 1 } : { w: 3, h: 3 };
+    const d = BUILDINGS[type];
+    return d ? { w: d.w, h: d.h } : { w: 1, h: 1 };
   }
 
   private tintGhost(obj: THREE.Group, valid: boolean): void {
@@ -212,7 +224,13 @@ export class UILayer {
   }
 
   private disposeGhostModel(obj: THREE.Group): void {
-    obj.traverse((c) => { if (c instanceof THREE.Mesh) { c.geometry.dispose(); (c.material as THREE.Material).dispose(); } });
+    // geometria modelelor GLB e partajata: se elibereaza doar materialul fantomei
+    obj.traverse((c) => {
+      if (c instanceof THREE.Mesh) {
+        if (!this.ghostIsReal) c.geometry.dispose();
+        (c.material as THREE.Material).dispose();
+      }
+    });
   }
 
   update(dt: number): void {

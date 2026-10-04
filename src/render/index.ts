@@ -13,6 +13,10 @@ import { CameraRig, cameraDirConstant } from './camera';
 import { EffectsSystem } from './effects';
 import { UILayer, type EntitySyncEntry } from './uiLayer';
 import { MODEL_FACTORY } from './models';
+import { preloadAssets, instantiate, assetsVersion, isReady, sceneryLoaded, type Instance, type ModelType } from './assets';
+import { ProjectileLayer } from './projectiles';
+import { buildScenery, type Scenery } from './scenery';
+import { BUILDINGS } from '../data/buildings';
 
 const RISE_TICKS = 60;
 const TAU = Math.PI * 2;
@@ -30,14 +34,38 @@ function worldYaw(angle: number): number {
 function unitRadius(type: Unit['type']): number {
   if (type === 'harvester') return 0.95;
   if (type === 'rocket') return 0.75;
+  if (type === 'soldier' || type === 'bazooka') return 0.42;
+  if (type === 'bomber') return 0.95;
   return 0.78;
 }
 function buildingSize(type: BuildingType): { w: number; h: number } {
-  return type === 'turret' ? { w: 1, h: 1 } : { w: 3, h: 3 };
+  const d = BUILDINGS[type];
+  return d ? { w: d.w, h: d.h } : { w: 3, h: 3 };
+}
+
+/** caseta de selectie (tile-uri): mai generoasa pe soldati ca sa nimereasca degetul */
+function unitPickBox(type: Unit['type']): { w: number; h: number; d: number } {
+  switch (type) {
+    case 'soldier': case 'bazooka': return { w: 0.75, h: 0.8, d: 0.75 };
+    case 'bomber': return { w: 1.7, h: 0.9, d: 1.7 };
+    case 'harvester': return { w: 1.1, h: 0.9, d: 1.4 };
+    default: return { w: 1.0, h: 0.8, d: 1.3 };
+  }
 }
 
 interface AnimRecord {
   kind: 'unit' | 'building';
+  type: ModelType;
+  real: boolean;                 // true = model GLB, false = placeholder procedural
+  inst: Instance | null;
+  clip: string;                  // animatia curenta (soldati)
+  lastFire: number;              // ultimul tick de tragere
+  prevAlt: number; curAlt: number;
+  bank: number; pitch: number;
+  shadow: THREE.Mesh | null;
+  contrailAcc: number;
+  pickH: number;
+  animAcc: number;
   team: Team;
   maxHp: number;
   hp: number;
@@ -105,6 +133,11 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   scene.add(effects.group);
   const ui = new UILayer();
   scene.add(ui.group);
+  const projectiles = new ProjectileLayer();
+  scene.add(projectiles.group);
+  preloadAssets();
+  let seenAssets = -1;
+  let scenery: Scenery | null = null;
 
   const entityLayer = new THREE.Group();
   scene.add(entityLayer);
@@ -136,9 +169,43 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   }
 
   function proxyGeometryFor(kind: 'unit' | 'building', type: string): THREE.BufferGeometry {
-    if (kind === 'unit') return new THREE.BoxGeometry(1.1, 0.9, 1.4);
+    if (kind === 'unit') {
+      const b = unitPickBox(type as Unit['type']);
+      return new THREE.BoxGeometry(b.w, b.h, b.d);
+    }
     const size = buildingSize(type as BuildingType);
-    return new THREE.BoxGeometry(size.w, 2, size.h);
+    return new THREE.BoxGeometry(size.w, buildingPickHeight(type as BuildingType), size.h);
+  }
+  function buildingPickHeight(type: BuildingType): number {
+    return type === 'turret' || type === 'rocketTurret' ? 1.0 : type === 'barracks' ? 1.8 : 2.2;
+  }
+
+  /** model real daca e incarcat, altfel placeholderul procedural */
+  function makeObject(type: ModelType, team: Team): { obj: THREE.Group; inst: Instance | null } {
+    const inst = instantiate(type, team);
+    if (inst) return { obj: inst.obj, inst };
+    return { obj: MODEL_FACTORY[type](team), inst: null };
+  }
+
+  const shadowGeo = new THREE.PlaneGeometry(1, 1);
+  shadowGeo.rotateX(-Math.PI / 2);
+  let shadowMat: THREE.MeshBasicMaterial | null = null;
+  function makeShadowBlob(): THREE.Mesh {
+    if (!shadowMat) {
+      const c = document.createElement('canvas');
+      c.width = c.height = 64;
+      const ctx = c.getContext('2d')!;
+      const g = ctx.createRadialGradient(32, 32, 0, 32, 32, 32);
+      g.addColorStop(0, 'rgba(0,0,0,0.85)');
+      g.addColorStop(0.5, 'rgba(0,0,0,0.5)');
+      g.addColorStop(1, 'rgba(0,0,0,0)');
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, 64, 64);
+      shadowMat = new THREE.MeshBasicMaterial({ map: new THREE.CanvasTexture(c), side: THREE.DoubleSide, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false, polygonOffset: true, polygonOffsetFactor: -2, polygonOffsetUnits: -2 });
+    }
+    const m = new THREE.Mesh(shadowGeo, shadowMat.clone());
+    m.renderOrder = 1;
+    return m;
   }
 
   function ensureWorldSetup(world: World): void {
@@ -164,7 +231,17 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
 
   function removeEntity(id: EntityId): void {
     const obj = objects.get(id);
-    if (obj) { entityLayer.remove(obj); disposeObject3D(obj); objects.delete(id); }
+    const rec0 = anim.get(id);
+    if (obj) {
+      entityLayer.remove(obj);
+      if (!rec0?.real) disposeObject3D(obj);   // geometria modelelor GLB e partajata, nu se elibereaza
+      objects.delete(id);
+    }
+    if (rec0?.shadow) {
+      entityLayer.remove(rec0.shadow);
+      (rec0.shadow.material as THREE.Material).dispose();
+    }
+    rec0?.inst?.mixer?.stopAllAction();
     const proxy = proxies.get(id);
     if (proxy) { pickLayer.remove(proxy); proxy.geometry.dispose(); proxies.delete(id); }
     anim.delete(id);
@@ -173,7 +250,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   function upsertUnit(u: Unit): void {
     let rec = anim.get(u.id);
     if (!rec) {
-      const obj = MODEL_FACTORY[u.type](u.team);
+      const made = makeObject(u.type, u.team);
+      const obj = made.obj;
       entityLayer.add(obj);
       objects.set(u.id, obj);
       const proxy = new THREE.Mesh(proxyGeometryFor('unit', u.type), new THREE.MeshBasicMaterial({ visible: false }));
@@ -181,7 +259,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       pickLayer.add(proxy);
       proxies.set(u.id, proxy);
       rec = {
-        kind: 'unit', team: u.team, maxHp: u.maxHp, hp: u.hp, radius: unitRadius(u.type),
+        kind: 'unit', type: u.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: u.lastFireTick,
+        prevAlt: u.alt, curAlt: u.alt, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: unitPickBox(u.type).h, animAcc: 0,
+        team: u.team, maxHp: u.maxHp, hp: u.hp, radius: unitRadius(u.type),
         builtTick: -999999, riseHeight: 0,
         prevX: u.x, prevY: u.y, prevAngle: u.angle, prevTurret: u.turretAngle,
         curX: u.x, curY: u.y, curAngle: u.angle, curTurret: u.turretAngle,
@@ -191,7 +271,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     } else {
       rec.prevX = rec.curX; rec.prevY = rec.curY; rec.prevAngle = rec.curAngle; rec.prevTurret = rec.curTurret;
       rec.curX = u.x; rec.curY = u.y; rec.curAngle = u.angle; rec.curTurret = u.turretAngle;
+      rec.prevAlt = rec.curAlt; rec.curAlt = u.alt;
     }
+    rec.lastFire = u.lastFireTick;
     rec.hp = u.hp;
     rec.maxHp = u.maxHp;
     rec.moving = u.moving;
@@ -203,7 +285,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     const size = buildingSize(b.type);
     const cx = b.tx + size.w / 2, cy = b.ty + size.h / 2;
     if (!rec) {
-      const obj = MODEL_FACTORY[b.type](b.team);
+      const made = makeObject(b.type, b.team);
+      const obj = made.obj;
       entityLayer.add(obj);
       objects.set(b.id, obj);
       const proxy = new THREE.Mesh(proxyGeometryFor('building', b.type), new THREE.MeshBasicMaterial({ visible: false }));
@@ -212,7 +295,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       proxies.set(b.id, proxy);
       const riseHeight = (obj.userData.riseHeight as number | undefined) ?? 2;
       rec = {
-        kind: 'building', team: b.team, maxHp: b.maxHp, hp: b.hp, radius: Math.max(size.w, size.h) * 0.62,
+        kind: 'building', type: b.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: 0,
+        prevAlt: 0, curAlt: 0, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: buildingPickHeight(b.type), animAcc: 0,
+        team: b.team, maxHp: b.maxHp, hp: b.hp, radius: Math.max(size.w, size.h) * 0.62,
         builtTick: b.builtTick, riseHeight,
         prevX: cx, prevY: cy, prevAngle: 0, prevTurret: b.turretAngle,
         curX: cx, curY: cy, curAngle: 0, curTurret: b.turretAngle,
@@ -228,6 +313,23 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     rec.maxHp = b.maxHp;
   }
 
+  /** cand un GLB tocmai s-a incarcat: inlocuieste placeholderele de acel tip */
+  function upgradePlaceholders(): void {
+    for (const [id, rec] of anim) {
+      if (rec.real || !isReady(rec.type)) continue;
+      const made = makeObject(rec.type, rec.team);
+      if (!made.inst) continue;
+      const old = objects.get(id);
+      if (old) { entityLayer.remove(old); disposeObject3D(old); }
+      entityLayer.add(made.obj);
+      objects.set(id, made.obj);
+      rec.inst = made.inst;
+      rec.real = true;
+      rec.clip = '';
+      if (rec.kind === 'building') rec.riseHeight = (made.obj.userData.riseHeight as number | undefined) ?? 2;
+    }
+  }
+
   function syncEntities(world: World): void {
     const present = new Set<EntityId>();
     for (const u of world.units.values()) { present.add(u.id); upsertUnit(u); }
@@ -240,15 +342,25 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   function processEvents(world: World): void {
     for (const ev of world.events) {
       if (ev.type === 'fire') {
-        const mx = ev.x + Math.cos(ev.angle) * 0.85;
-        const my = ev.y + Math.sin(ev.angle) * 0.85;
-        const h = heightAt(mx, my) + 0.42;
-        effects.muzzleFlash(mx, h, my, ev.weapon === 'rocket' ? 'rocket' : 'shell');
+        if (ev.weapon === 'bomb') continue; // bomba se vede cum cade (ProjectileLayer)
+        const src = world.units.get(ev.sourceId);
+        const inf = !!src && (src.type === 'soldier' || src.type === 'bazooka');
+        const off = inf ? 0.32 : 0.85;
+        const mx = ev.x + Math.cos(ev.angle) * off;
+        const my = ev.y + Math.sin(ev.angle) * off;
+        const h = heightAt(mx, my) + (inf ? 0.36 : 0.42);
+        effects.muzzleFlash(mx, h, my, ev.weapon);
         if (ev.weapon === 'shell') {
           effects.tracer(mx, h, my, mx + Math.cos(ev.angle) * 5, h, my + Math.sin(ev.angle) * 5);
+        } else if (ev.weapon === 'bullet') {
+          // tras subtire si rapid, scurt
+          effects.tracer(mx, h, my, mx + Math.cos(ev.angle) * 3.2, h, my + Math.sin(ev.angle) * 3.2, 0.06);
         }
       } else if (ev.type === 'hit') {
-        effects.hit(ev.x, heightAt(ev.x, ev.y) + 0.3, ev.y, ev.weapon === 'rocket' || ev.weapon === 'bomb' ? 'rocket' : 'shell');
+        const hy = heightAt(ev.x, ev.y);
+        if (ev.weapon === 'bomb') effects.bombBlast(ev.x, hy + 0.3, ev.y, camera.distance);
+        else if (ev.weapon === 'bullet') effects.bulletSpark(ev.x, hy + 0.25, ev.y);
+        else effects.hit(ev.x, hy + 0.3, ev.y, ev.weapon === 'rocket' ? 'rocket' : 'shell');
       } else if (ev.type === 'destroyed') {
         effects.explosion(ev.x, heightAt(ev.x, ev.y) + 0.15, ev.y, 0.7 + ev.size * 0.6, camera.distance);
       } else if (ev.type === 'unload') {
@@ -263,7 +375,69 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     return world.fog[localTeam]?.[ty * mapW + tx] ?? 2;
   }
 
+  /** bombardier: inaltime, inclinare in viraj, umbra pe sol, dara de condens */
+  function updateAircraft(rec: AnimRecord, obj: THREE.Object3D, angle: number, x: number, y: number, groundY: number, alt: number, visible: boolean, dt: number): void {
+    const tilt = (obj.userData.tilt as THREE.Object3D | undefined) ?? obj.getObjectByName('tilt');
+    if (tilt) {
+      const dA = lerpAngle(0, rec.curAngle - rec.prevAngle, 1);
+      const bankT = THREE.MathUtils.clamp(dA * 8, -0.7, 0.7);
+      const pitchT = THREE.MathUtils.clamp((rec.curAlt - rec.prevAlt) * 2.5, -0.35, 0.35);
+      const k = Math.min(1, dt * 5);
+      rec.bank += (bankT - rec.bank) * k;
+      rec.pitch += (pitchT - rec.pitch) * k;
+      tilt.rotation.set(-rec.pitch, 0, rec.bank);
+    }
+    if (!rec.shadow) {
+      rec.shadow = makeShadowBlob();
+      entityLayer.add(rec.shadow);
+    }
+    const sh = rec.shadow;
+    sh.visible = visible;
+    const sx = x + alt * 0.42, sy = y - alt * 0.3;
+    sh.position.set(sx, heightAt(sx, sy) + 0.07, sy);
+    sh.rotation.y = worldYaw(angle);
+    const sc = 1 + alt * 0.05;
+    sh.scale.set(1.15 * sc, 1, 1.7 * sc);
+    (sh.material as THREE.MeshBasicMaterial).opacity = 0.65 * THREE.MathUtils.clamp(1 - alt / 9, 0.45, 1);
+    if (visible && alt > 1) {
+      rec.contrailAcc += dt;
+      if (rec.contrailAcc > 0.045) {
+        rec.contrailAcc = 0;
+        effects.contrail(x - Math.cos(angle) * 0.75, groundY + alt + 0.02, y - Math.sin(angle) * 0.75);
+      }
+    }
+  }
+
+  let frameNo = 0;
+  /** soldati: animatie scheletica (idle / alergare / tras); fara model real, doar un mic salt la mers */
+  function updateInfantry(id: EntityId, rec: AnimRecord, obj: THREE.Object3D, world: World, dt: number): void {
+    const inst = rec.inst;
+    const firing = world.tick - rec.lastFire < 7;
+    if (inst && inst.mixer && inst.clips) {
+      const want = rec.moving ? (firing ? 'Run_Shoot' : 'Run') : (firing ? 'Idle_Gun_Shoot' : 'Idle_Gun');
+      if (want !== rec.clip) {
+        const next = inst.clips[want];
+        if (next) {
+          const prev = rec.clip ? inst.clips[rec.clip] : undefined;
+          next.reset().fadeIn(0.15).play();
+          if (!prev) next.time = (id * 0.37) % Math.max(0.1, next.getClip().duration);
+          prev?.fadeOut(0.15);
+          rec.clip = want;
+        }
+      }
+      rec.animAcc += dt;
+      // pe calitate redusa mixerul se actualizeaza la fiecare al doilea cadru
+      if (quality === 0 || ((frameNo + id) & 1) === 0) {
+        inst.mixer.update(rec.animAcc);
+        rec.animAcc = 0;
+      }
+    } else if (rec.moving) {
+      obj.position.y += Math.abs(Math.sin(clock * 11 + id)) * 0.05;
+    }
+  }
+
   function updateVisuals(world: World, alpha: number, dt: number): void {
+    frameNo++;
     pickableNow.clear();
     for (const [id, rec] of anim) {
       const obj = objects.get(id);
@@ -284,8 +458,11 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
 
       if (rec.kind === 'unit') {
         const angle = lerpAngle(rec.prevAngle, rec.curAngle, alpha);
-        obj.position.set(x, groundY, y);
+        const alt = rec.type === 'bomber' ? THREE.MathUtils.lerp(rec.prevAlt, rec.curAlt, alpha) : 0;
+        obj.position.set(x, groundY + alt, y);
         obj.rotation.set(0, worldYaw(angle), 0);
+        if (rec.type === 'bomber') updateAircraft(rec, obj, angle, x, y, groundY, alt, visible, dt);
+        else if (rec.type === 'soldier' || rec.type === 'bazooka') updateInfantry(id, rec, obj, world, dt);
         const turretPivot = obj.userData.turret as THREE.Object3D | undefined;
         if (turretPivot) {
           const turretAngle = lerpAngle(rec.prevTurret, rec.curTurret, alpha);
@@ -300,7 +477,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
           hopper.scale.y = Math.max(0.05, h / 0.1);
           hopper.position.y = base + h / 2;
         }
-        if (visible && rec.moving) {
+        if (visible && rec.moving && (rec.type === 'tank' || rec.type === 'rocket' || rec.type === 'harvester')) {
           rec.dustAcc += dt;
           rec.trackAcc += dt;
           if (rec.dustAcc > 0.1) {
@@ -335,7 +512,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         const bay = obj.userData.bayDoor as THREE.Object3D | undefined;
         if (bay) bay.rotation.x = -0.3 + Math.sin(clock * 0.5) * 0.3;
       }
-      proxy.position.copy(obj.position);
+      proxy.position.set(obj.position.x, obj.position.y + (rec.type === 'bomber' ? 0 : rec.pickH / 2), obj.position.z);
 
       if (visible && rec.maxHp > 0 && rec.hp < rec.maxHp * 0.5) {
         rec.smokeAcc += dt;
@@ -403,13 +580,27 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     ensureWorldSetup(world);
     watchFrameRate(dtSeconds);
     clock += dtSeconds;
+    if (assetsVersion !== seenAssets) {
+      seenAssets = assetsVersion;
+      upgradePlaceholders();
+      if (!scenery && terrain && sceneryLoaded()) {
+        scenery = buildScenery(world.map, heightAt);
+        if (scenery) {
+          scene.add(scenery.group);
+          const proc = terrain.group.getObjectByName('rocks');   // stancile procedurale cedeaza locul celor GLB
+          if (proc) proc.visible = false;
+        }
+      }
+    }
     if (world.tick !== lastTick) {
       syncEntities(world);
+      projectiles.sync(world.projectiles);
       processEvents(world);
       lastTick = world.tick;
     }
     if (fogOverlay) fogOverlay.update(world.fog[localTeam] ?? new Uint8Array(mapW * mapH), dtSeconds);
     updateVisuals(world, alpha, dtSeconds);
+    projectiles.update(alpha, dtSeconds, heightAt, effects, (px, py) => fogValueAt(world, px, py) >= 2);
     terrain?.update(clock);
     effects.update(dtSeconds);
     ui.update(dtSeconds);
@@ -496,6 +687,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       fogOverlay?.dispose();
       effects.dispose();
       ui.dispose();
+      projectiles.dispose();
+      scenery?.dispose();
       composer?.dispose();
       renderer.dispose();
     },

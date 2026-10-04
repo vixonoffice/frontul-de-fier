@@ -218,6 +218,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
   let rockMesh: THREE.InstancedMesh | null = null;
   if (rockPositions.length > 0) {
     rockMesh = new THREE.InstancedMesh(rockGeo, rockMaterial(), rockPositions.length);
+    rockMesh.name = 'rocks';
     rockMesh.castShadow = true;
     rockMesh.receiveShadow = true;
     const rockColors = new Float32Array(rockPositions.length * 3);
