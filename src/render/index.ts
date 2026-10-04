@@ -243,12 +243,12 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         const mx = ev.x + Math.cos(ev.angle) * 0.85;
         const my = ev.y + Math.sin(ev.angle) * 0.85;
         const h = heightAt(mx, my) + 0.42;
-        effects.muzzleFlash(mx, h, my, ev.weapon);
+        effects.muzzleFlash(mx, h, my, ev.weapon === 'rocket' ? 'rocket' : 'shell');
         if (ev.weapon === 'shell') {
           effects.tracer(mx, h, my, mx + Math.cos(ev.angle) * 5, h, my + Math.sin(ev.angle) * 5);
         }
       } else if (ev.type === 'hit') {
-        effects.hit(ev.x, heightAt(ev.x, ev.y) + 0.3, ev.y, ev.weapon);
+        effects.hit(ev.x, heightAt(ev.x, ev.y) + 0.3, ev.y, ev.weapon === 'rocket' || ev.weapon === 'bomb' ? 'rocket' : 'shell');
       } else if (ev.type === 'destroyed') {
         effects.explosion(ev.x, heightAt(ev.x, ev.y) + 0.15, ev.y, 0.7 + ev.size * 0.6, camera.distance);
       } else if (ev.type === 'unload') {

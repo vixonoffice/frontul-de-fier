@@ -34,7 +34,7 @@ export function createWorld(setup: GameSetup): World {
       credits: STARTING_CREDITS,
       isAI: pl.isAI,
       difficulty: pl.difficulty,
-      production: { building: null, units: [], rally: null },
+      production: { building: null, units: [], infantry: [], air: [], rally: null },
       defeated: false,
     })),
     fog: setup.players.map(() => new Uint8Array(map.w * map.h)),

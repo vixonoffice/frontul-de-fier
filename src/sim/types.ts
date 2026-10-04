@@ -5,8 +5,12 @@ export const TICK_RATE = 20; // tick-uri pe secundă, fix
 export type Team = 0 | 1 | 2 | 3;
 export type EntityId = number;
 
-export type UnitType = 'tank' | 'rocket' | 'harvester';
-export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret';
+// Etapa 2: infanterie (soldier, bazooka), aviație (bomber), cazarmă, aerodrom, turelă cu rachete (antiaeriană).
+export type UnitType = 'tank' | 'rocket' | 'harvester' | 'soldier' | 'bazooka' | 'bomber';
+export type BuildingType = 'hq' | 'refinery' | 'factory' | 'turret' | 'barracks' | 'airfield' | 'rocketTurret';
+/** Clădirea care produce o unitate; fiecare are propria coadă în Production. */
+export type ProducerType = 'factory' | 'barracks' | 'airfield';
+export type WeaponFx = 'shell' | 'rocket' | 'bullet' | 'bomb';
 export type Difficulty = 'easy' | 'normal' | 'hard';
 
 export interface Vec { x: number; y: number }
@@ -16,6 +20,8 @@ export type Order =
   | { kind: 'move'; x: number; y: number }
   | { kind: 'attack'; targetId: EntityId }
   | { kind: 'attackMove'; x: number; y: number }
+  | { kind: 'bombRun'; x: number; y: number }                 // doar avioane: zboară, lansează bombele pe punct, se întoarce
+  | { kind: 'returnToBase' }                                   // doar avioane: întoarcere la aerodrom pentru reîncărcare
   | { kind: 'harvest'; phase: 'seek' | 'toOre' | 'mining' | 'toRefinery' | 'unloading' | 'waiting' };
 
 export interface Unit {
@@ -33,6 +39,8 @@ export interface Unit {
   cooldown: number;              // tick-uri până la următoarea tragere
   lastFireTick: number;          // pentru efectul de flacără la țeavă
   moving: boolean;
+  alt: number;                   // înălțime de zbor în tile-uri (0 = la sol); doar avioanele au > 0
+  ammo: number;                  // bombe rămase (avion); 0 pentru restul
 }
 
 export interface Building {
@@ -53,7 +61,7 @@ export type Entity = Unit | Building;
 
 export interface Projectile {
   id: EntityId;
-  kind: 'shell' | 'rocket';
+  kind: WeaponFx;
   team: Team;
   x: number; y: number;
   fromX: number; fromY: number;
@@ -62,8 +70,8 @@ export interface Projectile {
 }
 
 export type SimEvent =
-  | { type: 'fire'; sourceId: EntityId; x: number; y: number; angle: number; weapon: 'shell' | 'rocket' }
-  | { type: 'hit'; x: number; y: number; weapon: 'shell' | 'rocket' }
+  | { type: 'fire'; sourceId: EntityId; x: number; y: number; angle: number; weapon: WeaponFx }
+  | { type: 'hit'; x: number; y: number; weapon: WeaponFx }
   | { type: 'destroyed'; id: EntityId; kind: 'unit' | 'building'; team: Team; x: number; y: number; size: number }
   | { type: 'unitReady'; team: Team; id: EntityId; unit: UnitType }
   | { type: 'buildingReady'; team: Team; building: BuildingType }   // gata de plasat
@@ -76,7 +84,9 @@ export type SimEvent =
 export interface ProductionSlot<T> { type: T; progress: number; ready: boolean } // progress 0..1
 export interface Production {
   building: ProductionSlot<BuildingType> | null;
-  units: ProductionSlot<UnitType>[];   // coadă, maxim 5
+  units: ProductionSlot<UnitType>[];   // coada fabricii (vehicule), maxim 5
+  infantry: ProductionSlot<UnitType>[]; // coada cazărmii, maxim 5
+  air: ProductionSlot<UnitType>[];      // coada aerodromului, maxim 5
   rally: Vec | null;
 }
 
@@ -121,7 +131,8 @@ export type Command =
   | { t: 'attack'; team: Team; ids: EntityId[]; targetId: EntityId }
   | { t: 'attackMove'; team: Team; ids: EntityId[]; x: number; y: number }
   | { t: 'stop'; team: Team; ids: EntityId[] }
-  | { t: 'harvest'; team: Team; ids: EntityId[]; x: number; y: number }
+  | { t: 'harvest'; team: Team; ids: EntityId[]; x: number; y: number }   // recoltoarele merg la minereul de lângă (x,y)
+  | { t: 'bomb'; team: Team; ids: EntityId[]; x: number; y: number }      // avioanele bombardează punctul (x,y)
   | { t: 'buildStart'; team: Team; building: BuildingType }
   | { t: 'buildPlace'; team: Team; tx: number; ty: number }
   | { t: 'buildCancel'; team: Team }

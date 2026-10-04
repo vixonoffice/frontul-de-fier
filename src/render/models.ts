@@ -4,7 +4,7 @@
 // doar functiile de aici se schimba — restul randarii lucreaza cu aceleasi userData.
 import * as THREE from 'three';
 import { RoundedBoxGeometry } from 'three/examples/jsm/geometries/RoundedBoxGeometry.js';
-import type { Team } from '../sim/types';
+import type { Team, UnitType, BuildingType } from '../sim/types';
 
 export const TEAM_COLORS: Record<Team, number> = {
   0: 0x3d9bff,
@@ -669,7 +669,14 @@ export function grassMaterial(variant: 0 | 1 = 0): THREE.MeshStandardMaterial {
   return mat('grass' + variant, variant === 0 ? 0x86a04e : 0xb3aa62, { roughness: 0.95, metalness: 0 });
 }
 
-export const MODEL_FACTORY = {
+// TODO etapa 2: modele proprii pentru unitățile și clădirile noi (deocamdată refolosesc ce există)
+export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THREE.Group> = {
+  soldier: createRocket,
+  bazooka: createRocket,
+  bomber: createTank,
+  barracks: createFactory,
+  airfield: createFactory,
+  rocketTurret: createTurret,
   tank: createTank,
   rocket: createRocket,
   harvester: createHarvester,

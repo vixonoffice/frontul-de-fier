@@ -310,4 +310,4 @@ function applySplash(world: World, internal: Internal, p: Projectile, weapon: We
 }
 
 // fallback dacă, improbabil, proiectilul nu mai are arma înregistrată (nu ar trebui să se întâmple)
-const FALLBACK_WEAPON: WeaponDef = { kind: 'cannon', damage: 0, reload: 1, range: 0, projectileSpeed: 16, splash: 0, vs: { lightVehicle: 1, heavyVehicle: 1, structure: 1 } };
+const FALLBACK_WEAPON: WeaponDef = { kind: 'cannon', damage: 0, reload: 1, range: 0, projectileSpeed: 16, splash: 0, vs: { lightVehicle: 1, heavyVehicle: 1, structure: 1, infantry: 1, aircraft: 1 }, canHitAir: false, canHitGround: true };

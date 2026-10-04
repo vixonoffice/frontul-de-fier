@@ -220,7 +220,7 @@ export function spawnUnit(world: World, _internal: Internal, team: Team, type: U
     id: world.nextId++, kind: 'unit', type, team, x, y,
     angle: 0, turretAngle: 0, hp: UNITS[type].hp, maxHp: UNITS[type].hp,
     order: type === 'harvester' ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' },
-    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false,
+    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: 0,
   };
   world.units.set(u.id, u);
   if (type !== 'harvester' && rally) {

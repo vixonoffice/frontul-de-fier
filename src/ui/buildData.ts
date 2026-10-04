@@ -14,12 +14,18 @@ export const BUILDING_INFO: Record<BuildingType, BuildableInfo> = {
   refinery: { name: 'Rafinărie', cost: 1000, time: 8 },
   factory: { name: 'Fabrică', cost: 1200, time: 10 },
   turret: { name: 'Turelă', cost: 600, time: 6 },
+  barracks: { name: 'Cazarmă', cost: 500, time: 6 },
+  airfield: { name: 'Aerodrom', cost: 2000, time: 14 },
+  rocketTurret: { name: 'Turelă antiaeriană', cost: 900, time: 8 },
 };
 
 export const UNIT_INFO: Record<UnitType, BuildableInfo> = {
   tank: { name: 'Tanc', cost: 600, time: 6 },
   rocket: { name: 'Lansator', cost: 800, time: 8 },
   harvester: { name: 'Recoltor', cost: 900, time: 9 },
+  soldier: { name: 'Soldat', cost: 150, time: 3 },
+  bazooka: { name: 'Antitanc', cost: 300, time: 5 },
+  bomber: { name: 'Bombardier', cost: 1400, time: 14 },
 };
 
 // Ordinea în care apar cardurile pe fiecare tab.
