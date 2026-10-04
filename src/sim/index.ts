@@ -9,7 +9,7 @@ import { getInternal, getNav, getHarvestState } from './internal';
 import { FOG_INTERVAL_TICKS, recomputeFog } from './fog';
 import {
   canPlaceBuilding, handleBuildCancel, handleBuildPlace, handleBuildStart,
-  handleRally, handleTrain, handleTrainCancel, spawnBuilding, spawnUnit,
+  handleRally, handleSell, handleTrain, handleTrainCancel, spawnBuilding, spawnUnit,
   updateHarvester, updateProduction, commandHarvest,
 } from './economy';
 import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
@@ -177,6 +177,9 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       break;
     case 'trainCancel':
       handleTrainCancel(world, cmd.team, cmd.unit);
+      break;
+    case 'sell':
+      handleSell(world, cmd.team, cmd.id);
       break;
     case 'rally':
       handleRally(world, cmd.team, cmd.x, cmd.y);

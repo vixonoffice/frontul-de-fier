@@ -80,6 +80,7 @@ export type SimEvent =
   | { type: 'underAttack'; team: Team; x: number; y: number }
   | { type: 'unload'; team: Team; x: number; y: number; amount: number }
   | { type: 'waveIncoming'; team: Team; wave: number }
+  | { type: 'sold'; team: Team; id: EntityId; building: BuildingType; x: number; y: number; refund: number }
   | { type: 'gameOver'; winner: Team };
 
 export interface ProductionSlot<T> { type: T; progress: number; ready: boolean } // progress 0..1
@@ -139,7 +140,8 @@ export type Command =
   | { t: 'buildCancel'; team: Team }
   | { t: 'train'; team: Team; unit: UnitType }
   | { t: 'trainCancel'; team: Team; unit: UnitType }
-  | { t: 'rally'; team: Team; x: number; y: number };
+  | { t: 'rally'; team: Team; x: number; y: number }
+  | { t: 'sell'; team: Team; id: EntityId };                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
 
 export interface GameSetup {
   seed: number;

@@ -2,7 +2,7 @@
 import type { Building, BuildingType, Player, ProducerType, Team, Unit, UnitType, Vec, World } from './types';
 import { TERRAIN_GROUND } from './types';
 import { UNITS, STARTING_CREDITS, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
-import { BUILDINGS, MAX_BUILD_DISTANCE } from '../data/buildings';
+import { BUILDINGS, MAX_BUILD_DISTANCE, SELL_REFUND } from '../data/buildings';
 import type { Internal } from './internal';
 import { getHarvestState } from './internal';
 import { findPath, nearestFree } from './path';
@@ -290,6 +290,16 @@ export function handleBuildPlace(world: World, internal: Internal, blocked: Uint
   if (!canPlaceBuilding(world, team, slot.type, tx, ty)) return;
   spawnBuilding(world, internal, blocked, team, slot.type, tx, ty);
   p.production.building = null;
+}
+
+/** Vinde o clădire proprie: dispare imediat, iar jucătorul primește o parte din cost, proporțional cu viața rămasă. */
+export function handleSell(world: World, team: Team, id: number): void {
+  const b = world.buildings.get(id);
+  if (!b || b.team !== team || b.type === 'hq') return;
+  const refund = Math.floor(BUILDINGS[b.type].cost * SELL_REFUND * Math.max(0, Math.min(1, b.hp / b.maxHp)));
+  world.players[team].credits += refund;
+  world.buildings.delete(id);
+  world.events.push({ type: 'sold', team, id, building: b.type, x: b.tx + b.w / 2, y: b.ty + b.h / 2, refund });
 }
 
 const MAX_QUEUE = 5;

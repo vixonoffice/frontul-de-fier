@@ -86,5 +86,6 @@ export const BUILDINGS: Record<BuildingType, BuildingDef> = {
   },
 };
 
+export const SELL_REFUND = 0.5; // fracțiunea din cost primită înapoi la vânzare (proporțional cu viața rămasă)
 export const MAX_BUILD_DISTANCE = 8; // tile-uri de la o clădire proprie existentă
 export const FREE_HARVESTER_ON_REFINERY = true;
