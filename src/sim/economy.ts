@@ -388,6 +388,7 @@ export function spawnBuilding(world: World, internal: Internal, blocked: Uint8Ar
     hp: def.hp, maxHp: def.hp, turretAngle: -Math.PI / 2, cooldown: 0, lastFireTick: -1, builtTick: world.tick, repairing: false,
   };
   world.buildings.set(b.id, b);
+  if (type === 'wall') internal.hasWalls = true;
   world.events.push({ type: 'buildingPlaced', team, id: b.id, building: type });
   nudgeOwnUnitsOffFootprint(world, blocked, b);
   if (type === 'refinery') {
@@ -478,6 +479,7 @@ export function handleTrain(world: World, team: Team, type: UnitType, count = 1)
   const def = UNITS[type];
   const queue = queueFor(p, def.producedAt);
   if (!hasBuilding(world, team, def.producedAt)) return;
+  if (def.requires && !hasBuilding(world, team, def.requires)) return; // tehnologie necesară (laborator)
   let n = Math.max(0, Math.min(Math.floor(count), MAX_QUEUE - queue.length));
   if (type === 'bomber') {
     let airfields = 0;
@@ -528,6 +530,9 @@ export function updateProduction(world: World, internal: Internal, blocked: Uint
       for (const b of world.buildings.values()) if (b.team === p.team && b.type === kind) { prod = b; break; }
       if (!prod) continue;
       const head = queue[0];
+      // unitățile cu cerință de tehnologie așteaptă dacă laboratorul s-a pierdut
+      const req = UNITS[head.type].requires;
+      if (req && !hasBuilding(world, p.team, req)) continue;
       if (!head.paid) {
         // plata se face când unitatea ajunge prima în coadă; fără bani, așteaptă la progres 0
         const cost = UNITS[head.type].cost;

@@ -39,7 +39,7 @@ export function updateGuards(world: World, internal: Internal, blocked: Uint8Arr
     const own: Vec[] = [];
     for (const id of sortedBuildingIds(world)) {
       const b = world.buildings.get(id);
-      if (b && b.team === team) own.push(center(b));
+      if (b && b.team === team && b.type !== 'wall') own.push(center(b));
     }
     if (own.length === 0) continue;
 

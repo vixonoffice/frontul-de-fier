@@ -8,7 +8,8 @@ import { getNav } from './internal';
 import { isVisible } from './fog';
 import type { WeaponDef } from '../data/units';
 import { UNITS, VETERANCY, LOW_POWER_FACTOR } from '../data/units';
-import { findPath } from './path';
+import { findPath, isFree } from './path';
+import { planPath } from './movement';
 import { isFlying } from './air';
 
 const UNDER_ATTACK_THROTTLE_TICKS = 10 * TICK_RATE;
@@ -37,44 +38,62 @@ export function findTarget(
 ): Entity | null {
   let best: Entity | null = null;
   let bestScore = Infinity;
-  for (const id of unitIds ?? sortedUnitIds(world)) {
-    if (id === excludeId) continue;
-    const u = world.units.get(id);
-    if (!u || !isEnemy(world, team, u)) continue;
-    let mult = 1;
-    if (weapon) {
-      if (!canWeaponTarget(weapon, u)) continue;
-      mult = weapon.vs[armorOf(u)];
-      if (mult <= 0) continue;
+  const minR = weapon?.minRange ?? 0;
+  const findUnit = (): Entity | null => {
+    let bu: Entity | null = null, bs = Infinity;
+    for (const id of unitIds ?? sortedUnitIds(world)) {
+      if (id === excludeId) continue;
+      const u = world.units.get(id);
+      if (!u || !isEnemy(world, team, u)) continue;
+      let mult = 1;
+      if (weapon) {
+        if (!canWeaponTarget(weapon, u)) continue;
+        mult = weapon.vs[armorOf(u)];
+        if (mult <= 0) continue;
+      }
+      const d = distCC(from, { x: u.x, y: u.y });
+      if (d > range || d < minR) continue;
+      if (!isVisible(world, team, u.x, u.y)) continue;
+      const score = d / mult;
+      if (score < bs) { bs = score; bu = u; }
     }
-    const d = distCC(from, { x: u.x, y: u.y });
-    if (d > range) continue;
-    if (!isVisible(world, team, u.x, u.y)) continue;
-    const score = d / mult;
-    if (score < bestScore) { bestScore = score; best = u; }
+    return bu;
+  };
+  const findBuilding = (): Entity | null => {
+    let bb: Entity | null = null, bs = Infinity;
+    for (const id of buildingIds ?? sortedBuildingIds(world)) {
+      const b = world.buildings.get(id);
+      if (!b || !isEnemy(world, team, b) || b.type === 'wall') continue; // zidurile nu sunt ținte automate
+      let mult = 1;
+      if (weapon) {
+        if (!weapon.canHitGround) continue;
+        mult = weapon.vs[armorOf(b)];
+        if (mult <= 0) continue;
+      }
+      const d = edgeDist(from, b);
+      if (d > range || d < minR) continue;
+      const c = center(b);
+      if (!isVisible(world, team, c.x, c.y)) continue;
+      // artileria preferă turelele
+      const tur = weapon?.kind === 'artillery' && (b.type === 'turret' || b.type === 'rocketTurret' || b.type === 'tesla') ? 0.4 : 1;
+      const score = (d / mult) * tur;
+      if (score < bs) { bs = score; bb = b; }
+    }
+    return bb;
+  };
+  void bestScore;
+  if (weapon?.kind === 'artillery') {
+    // artileria: clădiri și turele întâi, apoi unități
+    best = findBuilding();
+    return best ?? findUnit();
   }
+  best = findUnit();
   if (best) return best;
-  for (const id of buildingIds ?? sortedBuildingIds(world)) {
-    const b = world.buildings.get(id);
-    if (!b || !isEnemy(world, team, b)) continue;
-    let mult = 1;
-    if (weapon) {
-      if (!weapon.canHitGround) continue;
-      mult = weapon.vs[armorOf(b)];
-      if (mult <= 0) continue;
-    }
-    const d = edgeDist(from, b);
-    if (d > range) continue;
-    const c = center(b);
-    if (!isVisible(world, team, c.x, c.y)) continue;
-    const score = d / mult;
-    if (score < bestScore) { bestScore = score; best = b; }
-  }
-  return best;
+  return findBuilding();
 }
 
 export function weaponFx(w: WeaponDef): WeaponFx {
-  return w.kind === 'rocket' ? 'rocket' : w.kind === 'rifle' ? 'bullet' : w.kind === 'bomb' ? 'bomb' : 'shell';
+  return w.kind === 'rocket' ? 'rocket' : w.kind === 'rifle' ? 'bullet' : w.kind === 'bomb' ? 'bomb' : w.kind === 'tesla' ? 'tesla' : w.kind === 'artillery' ? 'artillery' : 'shell';
 }
 
 function emitFire(world: World, source: Entity, aim: number, weapon: WeaponFx): void {
@@ -91,7 +110,7 @@ function spawnProjectile(world: World, internal: Internal, source: Entity, targe
     team: source.team,
     x: from.x, y: from.y,
     fromX: from.x, fromY: from.y,
-    targetId: target.id,
+    targetId: weapon.kind === 'artillery' ? 0 : target.id, // obuzul de artilerie nu urmărește ținta
     tx: to.x, ty: to.y,
   };
   internal.projectileWeapon.set(proj.id, weapon);
@@ -104,6 +123,14 @@ function fire(world: World, internal: Internal, source: Entity, target: Entity, 
   const t = center(target);
   const aim = fatan2(t.y - c.y, t.x - c.x);
   emitFire(world, source, aim, weaponFx(weapon));
+  if (weapon.instant) {
+    // Tesla: lovește pe loc, în același tick
+    world.events.push({ type: 'hit', x: t.x, y: t.y, weapon: weaponFx(weapon) });
+    const p: Projectile = { id: -1, kind: weaponFx(weapon), team: source.team, x: t.x, y: t.y, fromX: c.x, fromY: c.y, targetId: target.id, tx: t.x, ty: t.y };
+    if (weapon.splash > 0) applySplash(world, internal, p, weapon, source.id);
+    else applyDamage(world, internal, target, weapon.damage, weapon, source.id);
+    return;
+  }
   spawnProjectile(world, internal, source, target, weapon);
 }
 
@@ -125,6 +152,9 @@ export function applyDamage(world: World, internal: Internal, target: Entity, ra
   if (target.kind === 'building' || UNITS[target.type].cargoCap > 0) {
     const hc = center(target);
     internal.lastHit.set(target.team, { x: hc.x, y: hc.y, tick: world.tick });
+    let log = internal.hitLog.get(target.team);
+    if (!log) { log = []; internal.hitLog.set(target.team, log); }
+    if (target.kind === 'building' && target.type !== 'wall') { log.push({ x: hc.x, y: hc.y }); if (log.length > 16) log.shift(); }
   }
   const c = center(target);
   if (!world.players[target.team].defeated) noteUnderAttack(world, internal, target.team, c);
@@ -249,7 +279,7 @@ export function updateUnitCombat(
     }
   } else if (unit.order.kind === 'attackMove') {
     if (nav.engagedTarget === null) {
-      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, def.sight, unit.id, unitIds, buildingIds, weapon);
+      const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, weapon.minRange ? range : def.sight, unit.id, unitIds, buildingIds, weapon);
       if (t) nav.engagedTarget = t.id;
     }
     if (nav.engagedTarget !== null) {
@@ -270,6 +300,14 @@ export function updateUnitCombat(
     } else if (unit.path.length === 0) {
       const dx = unit.order.x - unit.x, dy = unit.order.y - unit.y;
       if (dx * dx + dy * dy < 1) unit.order = { kind: 'idle' };
+      else if (internal.hasWalls && !unit.moving) {
+        // oprit departe de destinație, fără traseu: reface traseul sau sparge zidurile care îi taie drumul
+        nav.repathCooldown -= dt;
+        if (nav.repathCooldown <= 0) {
+          nav.repathCooldown = REPATH_INTERVAL;
+          stuckAttackMove(world, internal, blocked, unit, unit.order.x, unit.order.y);
+        }
+      }
     }
   } else if (unit.order.kind === 'idle' || unit.order.kind === 'move') {
     if (nav.engagedTarget === null) {
@@ -307,6 +345,23 @@ export function updateUnitCombat(
   if (unit.order.kind === 'attack') aimTarget = findEntity(world, unit.order.targetId) ?? null;
   else if (nav.engagedTarget !== null) aimTarget = findEntity(world, nav.engagedTarget) ?? null;
 
+  if (aimTarget && weapon.minRange !== undefined) {
+    const r0 = edgeDist({ x: unit.x, y: unit.y }, aimTarget);
+    if (r0 < weapon.minRange) {
+      // prea aproape (artilerie): cu ordin explicit se retrage ca să deschidă distanța, altfel doar nu trage
+      if (unit.order.kind === 'attack') {
+        const tc = center(aimTarget);
+        const dx = unit.x - tc.x, dy = unit.y - tc.y;
+        const d = Math.sqrt(dx * dx + dy * dy) || 1;
+        const want = weapon.minRange + 1.2 + collisionRadius(aimTarget);
+        const nx = Math.max(1, Math.min(world.map.w - 2, tc.x + (dx / d) * want));
+        const ny = Math.max(1, Math.min(world.map.h - 2, tc.y + (dy / d) * want));
+        if (isFree(blocked, world.map.w, world.map.h, Math.floor(nx), Math.floor(ny))) unit.path = [{ x: nx, y: ny }];
+      }
+      aimTarget = null;
+    }
+  }
+
   if (aimTarget) {
     const r = edgeDist({ x: unit.x, y: unit.y }, aimTarget);
     if (r <= range) tryFireAt(world, internal, unit, aimTarget, weapon, dt);
@@ -325,6 +380,8 @@ export function updateTurretBuilding(
 ): void {
   const w = weaponOf(building);
   if (!w) return;
+  // Tesla nu trage deloc fără curent (celelalte turele doar încetinesc)
+  if (w.instant && internal.lowPower.get(building.team)) { building.cooldown = Math.max(0, building.cooldown - dt); return; }
   const t = findTarget(world, building.team, center(building), w.range, undefined, unitIds, buildingIds, w);
   if (t) {
     tryFireAt(world, internal, building, t, w, dt);
@@ -349,7 +406,7 @@ export function updateProjectiles(world: World, internal: Internal, dt: number):
       continue;
     }
     const target = findEntity(world, p.targetId);
-    if (target) {
+    if (target && sourceWeapon.kind !== 'artillery') {
       const c = center(target);
       p.tx = c.x; p.ty = c.y;
     }
@@ -375,7 +432,8 @@ export function updateProjectiles(world: World, internal: Internal, dt: number):
   world.projectiles.push(...alive);
 }
 
-function applySplash(world: World, internal: Internal, p: Projectile, weapon: WeaponDef): void {
+function applySplash(world: World, internal: Internal, p: Projectile, weapon: WeaponDef, sourceId?: EntityId): void {
+  const src = sourceId ?? internal.projectileSource.get(p.id);
   const victims: Entity[] = [];
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id);
@@ -389,11 +447,42 @@ function applySplash(world: World, internal: Internal, p: Projectile, weapon: We
     const d = edgeDist({ x: p.tx, y: p.ty }, v);
     if (d <= weapon.splash) {
       // bombă: daună plină aproape de centru, jumătate la margine; rest: plină doar pe ținta principală
-      const isPrimary = p.kind === 'bomb' ? d <= weapon.splash * 0.5 : v.id === p.targetId;
-      applyDamage(world, internal, v, isPrimary ? weapon.damage : weapon.damage * 0.5, weapon, internal.projectileSource.get(p.id));
+      const isPrimary = p.kind === 'bomb' || p.kind === 'artillery' ? d <= weapon.splash * 0.5 : v.id === p.targetId;
+      applyDamage(world, internal, v, isPrimary ? weapon.damage : weapon.damage * 0.5, weapon, src);
     }
   }
 }
 
 // fallback dacă, improbabil, proiectilul nu mai are arma înregistrată (nu ar trebui să se întâmple)
 const FALLBACK_WEAPON: WeaponDef = { kind: 'cannon', damage: 0, reload: 1, range: 0, projectileSpeed: 16, splash: 0, vs: { lightVehicle: 1, heavyVehicle: 1, structure: 1, infantry: 1, aircraft: 1 }, canHitAir: false, canHitGround: true };
+
+
+/**
+ * Un attack-move oprit departe de destinație: întâi încearcă un traseu normal; dacă nu există, caută unul care ar trece
+ * prin ziduri inamice și atacă primul zid din cale.
+ */
+function stuckAttackMove(world: World, internal: Internal, blocked: Uint8Array, unit: Unit, dx: number, dy: number): void {
+  const { w, h } = world.map;
+  const nav = getNav(internal, unit.id);
+  const p = planPath(blocked, w, h, unit, { x: dx, y: dy });
+  if (p.length > 0) { unit.path = p; nav.flow = null; return; }
+  const walls = new Map<number, Building>();
+  for (const b of world.buildings.values()) if (b.type === 'wall' && b.team !== unit.team) walls.set(b.ty * w + b.tx, b);
+  if (walls.size === 0) return;
+  const grid = blocked.slice();
+  for (const k of walls.keys()) grid[k] = 0;
+  const p2 = planPath(grid, w, h, unit, { x: dx, y: dy });
+  if (p2.length === 0) return;
+  // primul zid întâlnit pe traseul fără ziduri
+  let px = unit.x, py = unit.y;
+  for (const wp of p2) {
+    const len = Math.sqrt((wp.x - px) ** 2 + (wp.y - py) ** 2);
+    const n = Math.max(1, Math.ceil(len / 0.4));
+    for (let i = 1; i <= n; i++) {
+      const x = px + ((wp.x - px) * i) / n, y = py + ((wp.y - py) * i) / n;
+      const wall = walls.get(Math.floor(y) * w + Math.floor(x));
+      if (wall) { nav.flow = null; nav.engagedTarget = wall.id; return; }
+    }
+    px = wp.x; py = wp.y;
+  }
+}

@@ -85,6 +85,9 @@ export interface Internal {
   assist: Map<Team, AssistMem>;
   oreClusters: Array<{ x: number; y: number; tiles: number[] }> | null; // clusterele de minereu (calculate o dată)
   reach: Map<Team, Uint8Array>;               // tile-uri accesibile de la inamici (pentru perimetrul de apărare)
+  hasWalls: boolean;                          // există ziduri în joc (activează logica de spargere a zidurilor)
+  wallChain: Map<Team, boolean>;              // după un zid plasat, începe automat următorul (setat de buildStart pentru ziduri)
+  hitLog: Map<Team, Array<{ x: number; y: number }>>; // ultimele lovituri în clădirile echipei (laturile cele mai atacate)
   docks: Map<EntityId, { occupant: EntityId | null; queue: EntityId[] }>; // dock-ul fiecărei rafinării
   guardPost: Map<EntityId, { x: number; y: number }>;   // postul fiecărui gardian
   guardState: Map<EntityId, { x: number; y: number }>;  // gardian care răspunde la o alarmă (locul alarmei)
@@ -112,6 +115,9 @@ export function getInternal(world: object): Internal {
       bomber: new Map(),
       assist: new Map(),
       docks: new Map(),
+      hasWalls: false,
+      wallChain: new Map(),
+      hitLog: new Map(),
       oreClusters: null,
       reach: new Map(),
       guardPost: new Map(),

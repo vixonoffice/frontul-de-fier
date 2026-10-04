@@ -24,12 +24,18 @@ export function wouldBeLowPower(world: World, team: Team, type: Building['type']
   return pw < 0 && used - pw > made;
 }
 
+function teamHas(world: World, team: Team, type: Building['type']): boolean {
+  for (const b of world.buildings.values()) if (b.team === team && b.type === type) return true;
+  return false;
+}
+
 export function updatePower(world: World, internal: Internal): void {
   for (const p of world.players) {
     const pw = powerOf(world, p.team);
     p.power.made = Math.round(pw.made * 100) / 100;
     p.power.used = pw.used;
     const low = !p.defeated && pw.used > pw.made;
+    p.radar = !low && !p.defeated && teamHas(world, p.team, 'radar');
     if ((internal.lowPower.get(p.team) ?? false) !== low) {
       internal.lowPower.set(p.team, low);
       world.events.push({ type: 'lowPower', team: p.team, on: low });
