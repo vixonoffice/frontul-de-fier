@@ -10,7 +10,7 @@ import { FOG_INTERVAL_TICKS, recomputeFog } from './fog';
 import {
   canPlaceBuilding, handleBuildCancel, handleBuildPlace, handleBuildStart,
   handleRally, handleSell, handleTrain, handleTrainCancel, spawnBuilding, spawnUnit,
-  updateHarvester, updateProduction, commandHarvest,
+  updateHarvester, updateProduction, commandHarvest, updateDocks,
 } from './economy';
 import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, updateUnitCombat } from './combat';
 import { findPath } from './path';
@@ -115,7 +115,7 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssis
       const target = world.units.get(cmd.targetId) ?? world.buildings.get(cmd.targetId);
       for (const id of ids) {
         const u = world.units.get(id);
-        if (!u || u.type === 'harvester') continue;
+        if (!u || UNITS[u.type].cargoCap > 0) continue;
         if (isAir(u)) {
           // atac cu avion = raid de bombardament pe poziția țintei (doar ținte la sol)
           if (target && !(target.kind === 'unit' && target.alt > 0.25)) {
@@ -165,7 +165,7 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssis
       const ids = filterOwnIds(world, cmd.team, cmd.ids);
       for (const id of ids) {
         const u = world.units.get(id);
-        if (!u || u.type !== 'harvester') continue;
+        if (!u || UNITS[u.type].cargoCap === 0) continue;
         commandHarvest(world, internal, blocked, u, cmd.x, cmd.y);
       }
       break;
@@ -188,7 +188,7 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssis
     case 'role': {
       for (const id of filterOwnIds(world, cmd.team, cmd.ids)) {
         const u = world.units.get(id)!;
-        if (u.type === 'harvester') continue;
+        if (UNITS[u.type].cargoCap > 0) continue;
         u.role = cmd.role;
         if (!fromAssist) internal.playerRole.add(id);
         internal.guardState.delete(id);
@@ -245,9 +245,10 @@ export function step(world: World, commands: Command[]): void {
     for (const cmd of aiCommands) applyCommand(world, cmd, blocked);
   }
 
+  updateDocks(world, internal, blocked);
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id);
-    if (u && u.type === 'harvester') updateHarvester(world, internal, blocked, u, DT);
+    if (u && UNITS[u.type].cargoCap > 0) updateHarvester(world, internal, blocked, u, DT);
   }
   updateProduction(world, internal, blocked, DT);
   updateAllBombers(world, internal, DT);

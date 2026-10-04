@@ -120,13 +120,21 @@ export function applyDamage(world: World, internal: Internal, target: Entity, ra
   target.hp -= dmg;
   if (target.kind === 'unit') internal.lastDamageTick.set(target.id, world.tick);
   // lovitură în clădire sau recoltor: declanșează gardienii
-  if (target.kind === 'building' || target.type === 'harvester') {
+  if (target.kind === 'building' || UNITS[target.type].cargoCap > 0) {
     const hc = center(target);
     internal.lastHit.set(target.team, { x: hc.x, y: hc.y, tick: world.tick });
   }
   const c = center(target);
   if (!world.players[target.team].defeated) noteUnderAttack(world, internal, target.team, c);
   if (target.hp <= 0) destroyEntity(world, internal, target);
+}
+
+/** Creditează o distrugere unității care a tras lovitura (grade: vezi etapa B). */
+export function creditKill(world: World, internal: Internal, killerId: EntityId): void {
+  const k = world.units.get(killerId);
+  if (!k) return;
+  k.kills += 1;
+  void internal;
 }
 
 export function destroyEntity(world: World, internal: Internal, target: Entity): void {
@@ -186,6 +194,14 @@ export function updateUnitCombat(
   if (!wr) return;
   const { weapon, range } = wr;
   const nav = getNav(internal, unit.id);
+
+  if (def.cargoCap > 0) {
+    // recoltor blindat: trage în inamicii din rază în timp ce lucrează, fără să urmărească pe nimeni
+    const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, range, unit.id, unitIds, buildingIds, weapon);
+    if (t) tryFireAt(world, internal, unit, t, weapon, dt);
+    else unit.cooldown = Math.max(0, unit.cooldown - dt);
+    return;
+  }
 
   if (nav.engagedTarget !== null) {
     const t = findEntity(world, nav.engagedTarget);

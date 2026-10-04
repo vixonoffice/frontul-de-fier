@@ -10,6 +10,12 @@ export interface HarvestState {
   oreTile: number;              // index în world.map.ore, -1 = niciunul
   refineryId: EntityId | null;
   timer: number;                // secunde rămase până la următorul ciclu (minare/descărcare/așteptare)
+  lastRef: number;              // ultima rafinărie folosită (minereul se caută lângă ea)
+  slot: number;                 // locul din coada rafinăriei (-1 = niciunul)
+  lx: number; ly: number;       // ultima poziție verificată pentru detectarea blocajelor
+  stuck: number;                // secunde fără progres
+  banRef: number; banT: number; // rafinărie evitată temporar
+  badTile: number;              // tile de minereu de evitat după un blocaj
   idle: number;                 // secunde petrecute inactiv (idle) fără daună; la prag recoltorul reia singur
 }
 
@@ -31,6 +37,7 @@ export interface UnitNav {
   engagedTarget: EntityId | null; // țintă angajată automat (idle-hold / attackMove), nu e ordin explicit
   holdOriginX: number;          // poziția din care s-a angajat în luptă idle (pentru leash)
   holdOriginY: number;
+  face: number | null;          // direcția în care se întoarce unitatea când se oprește pe slotul din formație
 }
 
 export interface AIMemory {
@@ -63,6 +70,7 @@ export interface Internal {
   projectileWeapon: Map<EntityId, WeaponDef>; // arma care a lansat proiectilul (daună/splash reale)
   bomber: Map<EntityId, BomberState>;
   assist: Map<Team, AssistMem>;
+  docks: Map<EntityId, { occupant: EntityId | null; queue: EntityId[] }>; // dock-ul fiecărei rafinării
   guardPost: Map<EntityId, { x: number; y: number }>;   // postul fiecărui gardian
   guardState: Map<EntityId, { x: number; y: number }>;  // gardian care răspunde la o alarmă (locul alarmei)
   lastHit: Map<Team, { x: number; y: number; tick: number }>; // ultima lovitură în clădire/recoltor al echipei
@@ -86,6 +94,7 @@ export function getInternal(world: object): Internal {
       projectileWeapon: new Map(),
       bomber: new Map(),
       assist: new Map(),
+      docks: new Map(),
       guardPost: new Map(),
       guardState: new Map(),
       lastHit: new Map(),
@@ -101,13 +110,13 @@ export function getInternal(world: object): Internal {
 
 export function getHarvestState(internal: Internal, id: EntityId): HarvestState {
   let s = internal.harvest.get(id);
-  if (!s) { s = { oreTile: -1, refineryId: null, timer: 0, idle: 0 }; internal.harvest.set(id, s); }
+  if (!s) { s = { oreTile: -1, refineryId: null, timer: 0, idle: 0, lastRef: -1, slot: -1, lx: 0, ly: 0, stuck: 0, banRef: -1, banT: 0, badTile: -1 }; internal.harvest.set(id, s); }
   return s;
 }
 
 export function getNav(internal: Internal, id: EntityId): UnitNav {
   let n = internal.nav.get(id);
-  if (!n) { n = { flow: null, repathCooldown: 0, engagedTarget: null, holdOriginX: 0, holdOriginY: 0 }; internal.nav.set(id, n); }
+  if (!n) { n = { flow: null, repathCooldown: 0, engagedTarget: null, holdOriginX: 0, holdOriginY: 0, face: null }; internal.nav.set(id, n); }
   return n;
 }
 

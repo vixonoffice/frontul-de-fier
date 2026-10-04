@@ -5,10 +5,11 @@ import { UNITS, STARTING_CREDITS, MAX_QUEUE, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIEL
 import { BUILDINGS, MAX_BUILD_DISTANCE, SELL_REFUND } from '../data/buildings';
 import type { Internal } from './internal';
 import { getHarvestState } from './internal';
-import { findPath, nearestFree } from './path';
+import type { HarvestState } from './internal';
+import { isFree, nearestFree } from './path';
 import { sortedUnitIds, teamBuildingsOfType, distCC } from './entities';
 import { bomberSpawnSpot, isAir, parkBomberAt } from './air';
-import { HARVEST_CALM_TICKS } from './movement';
+import { HARVEST_CALM_TICKS, planPath, rallyUnit } from './movement';
 import { getNav } from './internal';
 
 function idx(w: number, x: number, y: number): number { return y * w + x; }
@@ -17,7 +18,7 @@ function idx(w: number, x: number, y: number): number { return y * w + x; }
 const DIRS8: ReadonlyArray<readonly [number, number]> = [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]];
 const MAX_ORE_SEARCH = 4000;
 
-function findOreTile(world: World, internal: Internal, blocked: Uint8Array, startX: number, startY: number): number {
+function findOreTile(world: World, internal: Internal, blocked: Uint8Array, startX: number, startY: number, exclude = -1): number {
   const { w, h, ore } = world.map;
   const seen = new Uint8Array(w * h);
   const q: number[] = [idx(w, startX, startY)];
@@ -26,7 +27,7 @@ function findOreTile(world: World, internal: Internal, blocked: Uint8Array, star
   while (head < q.length && head < MAX_ORE_SEARCH) {
     const c = q[head++];
     const reserved = internal.oreReserved.get(c) ?? 0;
-    if (ore[c] > 0 && reserved < 1) return c;
+    if (ore[c] > 0 && reserved < 1 && c !== exclude) return c;
     const cx = c % w, cy = (c / w) | 0;
     for (const [dx, dy] of DIRS8) {
       const nx = cx + dx, ny = cy + dy;
@@ -71,6 +72,7 @@ export function commandHarvest(world: World, internal: Internal, blocked: Uint8A
   const hs = getHarvestState(internal, unit.id);
   releaseReservation(internal, hs.oreTile);
   hs.oreTile = -1;
+  leaveQueues(internal, unit.id);
   hs.refineryId = null;
   hs.idle = 0;
   const nav = getNav(internal, unit.id);
@@ -83,14 +85,115 @@ export function commandHarvest(world: World, internal: Internal, blocked: Uint8A
   if (tile < 0) { unit.order = { kind: 'harvest', phase: 'seek' }; return; }
   hs.oreTile = tile;
   internal.oreReserved.set(tile, (internal.oreReserved.get(tile) ?? 0) + 1);
-  const p = findPath(blocked, w, h, Math.max(0, Math.min(w - 1, Math.floor(unit.x))), Math.max(0, Math.min(h - 1, Math.floor(unit.y))), tile % w, (tile / w) | 0);
-  unit.path = p ?? [];
+  unit.path = planPath(blocked, w, h, unit, { x: (tile % w) + 0.5, y: ((tile / w) | 0) + 0.5 });
   unit.order = { kind: 'harvest', phase: 'toOre' };
 }
 
+// ----- rafinării: un singur dock, coadă vizibilă pe tile-uri libere lângă drumul de apropiere -----
+
+const QUEUE_WAIT = 1.2;        // secunde estimate per recoltor aflat înaintea ta (descărcare + manevră)
+const STUCK_SECONDS = 3;       // fără progres atât timp cât are traseu => reface traseul / schimbă ținta
+const BAN_SECONDS = 15;        // rafinăria de care s-a blocat e evitată un timp
+
+/** Centrul tile-ului de dock al rafinăriei: tile-ul de sub mijlocul ei (sau cel mai apropiat liber). */
+export function dockCenter(world: World, blocked: Uint8Array, r: Building): Vec {
+  const { w, h } = world.map;
+  const cx = Math.floor(r.tx + r.w / 2), cy = r.ty + r.h;
+  const f = isFree(blocked, w, h, cx, cy) ? { x: cx, y: cy } : (nearestFree(blocked, w, h, cx, cy, 4) ?? { x: cx, y: cy });
+  return { x: f.x + 0.5, y: f.y + 0.5 };
+}
+
+/** Locul de așteptare nr. `i`: pe rândul docului (lateral), apoi pe rândurile următoare, mereu în afara drumului de ieșire. */
+function queueSlot(world: World, blocked: Uint8Array, r: Building, i: number): Vec {
+  const { w, h } = world.map;
+  const d = dockCenter(world, blocked, r);
+  const dx0 = Math.floor(d.x), dy0 = Math.floor(d.y);
+  const slots: Vec[] = [];
+  for (let row = 0; row < 3 && slots.length <= i; row++) {
+    for (let k = row === 0 ? 1 : 2; k <= 6; k++) {
+      for (const sgn of [-1, 1]) {
+        const x = dx0 + sgn * k, y = dy0 + row;
+        if (isFree(blocked, w, h, x, y)) slots.push({ x: x + 0.5, y: y + 0.5 });
+      }
+    }
+  }
+  return slots[i] ?? slots[slots.length - 1] ?? d;
+}
+
+/** Eliberează docul/coada de recoltoare dispărute sau care au plecat; chemat o dată pe tick. */
+export function updateDocks(world: World, internal: Internal, blocked: Uint8Array): void {
+  for (const [rid, dock] of internal.docks) {
+    const r = world.buildings.get(rid);
+    if (!r) { internal.docks.delete(rid); continue; }
+    const dc = dockCenter(world, blocked, r);
+    const valid = (id: number): boolean => {
+      const u = world.units.get(id);
+      if (!u || u.order.kind !== 'harvest') return false;
+      const hs = internal.harvest.get(id);
+      return !!hs && hs.refineryId === rid && (u.order.phase === 'toRefinery' || u.order.phase === 'unloading');
+    };
+    dock.queue = dock.queue.filter(valid);
+    if (dock.occupant !== null) {
+      const u = world.units.get(dock.occupant);
+      // dreptul de trecere: docul rămâne al celui care pleacă până se îndepărtează de el
+      if (!u || (!valid(dock.occupant) && distCC(u, dc) > 1.1)) dock.occupant = null;
+    }
+  }
+}
+
+function getDock(internal: Internal, rid: number): { occupant: number | null; queue: number[] } {
+  let d = internal.docks.get(rid);
+  if (!d) { d = { occupant: null, queue: [] }; internal.docks.set(rid, d); }
+  return d;
+}
+
+function leaveQueues(internal: Internal, id: number): void {
+  for (const d of internal.docks.values()) {
+    const i = d.queue.indexOf(id);
+    if (i >= 0) d.queue.splice(i, 1);
+  }
+}
+
+/** Alege rafinăria cu timpul total estimat cel mai mic (drum + coadă x timp de descărcare). */
+function chooseRefinery(world: World, internal: Internal, blocked: Uint8Array, unit: Unit, banned: number): Building | null {
+  const speed = UNITS[unit.type].speed;
+  let best: Building | null = null, bestT = Infinity;
+  for (const r of teamBuildingsOfType(world, unit.team, 'refinery')) {
+    if (r.id === banned) continue;
+    const dock = internal.docks.get(r.id);
+    const ahead = dock ? dock.queue.filter((id) => id !== unit.id).length + (dock.occupant !== null && dock.occupant !== unit.id ? 1 : 0) : 0;
+    const t = distCC(unit, dockCenter(world, blocked, r)) / speed + ahead * QUEUE_WAIT;
+    if (t < bestT - 1e-9 || (Math.abs(t - bestT) <= 1e-9 && best && r.id < best.id)) { bestT = t; best = r; }
+  }
+  if (!best && banned >= 0) return chooseRefinery(world, internal, blocked, unit, -1);
+  return best;
+}
+
+/** Trece în faza de mers la rafinărie; rafinăria se alege din nou (se reevaluează după fiecare încărcare). */
+function goRefinery(internal: Internal, unit: Unit, hs: HarvestState): void {
+  leaveQueues(internal, unit.id);
+  hs.refineryId = null;
+  hs.slot = -1;
+  unit.path = [];
+  unit.order = { kind: 'harvest', phase: 'toRefinery' };
+}
+
+function setPath(world: World, blocked: Uint8Array, unit: Unit, dest: Vec, avoidTile: Vec | null): void {
+  const { w, h } = world.map;
+  let grid = blocked;
+  if (avoidTile) {
+    // docul e interzis celor care nu sunt la rând: ocolesc tile-ul
+    grid = blocked.slice();
+    const i = Math.floor(avoidTile.y) * w + Math.floor(avoidTile.x);
+    if (Math.floor(unit.x) + Math.floor(unit.y) * w !== i && Math.floor(dest.x) + Math.floor(dest.y) * w !== i) grid[i] = 1;
+  }
+  unit.path = planPath(grid, w, h, unit, dest);
+}
+
 export function updateHarvester(world: World, internal: Internal, blocked: Uint8Array, unit: Unit, dt: number): void {
-  const def = UNITS.harvester;
+  const def = UNITS[unit.type];
   const hs = getHarvestState(internal, unit.id);
+  if (hs.banT > 0) hs.banT -= dt;
   if (unit.order.kind === 'idle') {
     // watchdog: un recoltor inactiv și nebătut reia singur recoltarea (nu rămâne blocat definitiv)
     const calm = world.tick - (internal.lastDamageTick.get(unit.id) ?? -1e9) >= HARVEST_CALM_TICKS;
@@ -102,22 +205,48 @@ export function updateHarvester(world: World, internal: Internal, blocked: Uint8
   hs.idle = 0;
   const { w, h, ore } = world.map;
 
+  // detectarea blocajelor: are traseu dar nu înaintează => refă traseul / alege altceva
+  if (unit.path.length > 0) {
+    if (Math.abs(unit.x - hs.lx) + Math.abs(unit.y - hs.ly) > 0.05) { hs.lx = unit.x; hs.ly = unit.y; hs.stuck = 0; }
+    else hs.stuck += dt;
+  } else { hs.lx = unit.x; hs.ly = unit.y; hs.stuck = 0; }
+  if (hs.stuck >= STUCK_SECONDS) {
+    hs.stuck = 0;
+    unit.path = [];
+    if (unit.order.phase === 'toOre') {
+      releaseReservation(internal, hs.oreTile);
+      hs.badTile = hs.oreTile;
+      hs.oreTile = -1;
+      unit.order = { kind: 'harvest', phase: 'seek' };
+    } else if (unit.order.phase === 'toRefinery') {
+      hs.banRef = hs.refineryId ?? -1;
+      hs.banT = BAN_SECONDS;
+      goRefinery(internal, unit, hs);
+    }
+  }
+
   switch (unit.order.phase) {
     case 'seek': {
-      if (unit.carry >= def.cargoCap) { unit.order = { kind: 'harvest', phase: 'toRefinery' }; break; }
-      const startX = Math.max(0, Math.min(w - 1, Math.floor(unit.x)));
-      const startY = Math.max(0, Math.min(h - 1, Math.floor(unit.y)));
-      const tile = findOreTile(world, internal, blocked, startX, startY);
+      if (unit.carry >= def.cargoCap) { goRefinery(internal, unit, hs); break; }
+      // minereul se caută lângă rafinăria spre care se va întoarce (altfel de unde se află)
+      let startX = Math.floor(unit.x), startY = Math.floor(unit.y);
+      const lr = hs.lastRef >= 0 ? world.buildings.get(hs.lastRef) : undefined;
+      if (lr && lr.team === unit.team) {
+        const dc = dockCenter(world, blocked, lr);
+        startX = Math.floor(dc.x); startY = Math.floor(dc.y);
+      }
+      startX = Math.max(0, Math.min(w - 1, startX));
+      startY = Math.max(0, Math.min(h - 1, startY));
+      const tile = findOreTile(world, internal, blocked, startX, startY, hs.badTile);
       if (tile < 0) {
-        if (unit.carry > 0) unit.order = { kind: 'harvest', phase: 'toRefinery' };
+        if (unit.carry > 0) goRefinery(internal, unit, hs);
         // altfel rămâne 'seek': va reîncerca tick-ul următor (nu există minereu accesibil)
         break;
       }
+      hs.badTile = -1;
       hs.oreTile = tile;
       internal.oreReserved.set(tile, (internal.oreReserved.get(tile) ?? 0) + 1);
-      const tx = tile % w, ty = (tile / w) | 0;
-      const p = findPath(blocked, w, h, startX, startY, tx, ty);
-      unit.path = p ?? [];
+      setPath(world, blocked, unit, { x: (tile % w) + 0.5, y: ((tile / w) | 0) + 0.5 }, null);
       unit.order = { kind: 'harvest', phase: 'toOre' };
       break;
     }
@@ -125,7 +254,7 @@ export function updateHarvester(world: World, internal: Internal, blocked: Uint8
       if (unit.path.length > 0 || unit.moving) break;
       const tx = hs.oreTile % w, ty = (hs.oreTile / w) | 0;
       const d = distCC({ x: unit.x, y: unit.y }, { x: tx + 0.5, y: ty + 0.5 });
-      if (d > 1.6) { releaseReservation(internal, hs.oreTile); hs.oreTile = -1; unit.order = { kind: 'harvest', phase: 'seek' }; break; }
+      if (hs.oreTile < 0 || d > 1.6) { releaseReservation(internal, hs.oreTile); hs.oreTile = -1; unit.order = { kind: 'harvest', phase: 'seek' }; break; }
       hs.timer = def.mineTime;
       unit.order = { kind: 'harvest', phase: 'mining' };
       break;
@@ -142,32 +271,49 @@ export function updateHarvester(world: World, internal: Internal, blocked: Uint8
       if (unit.carry >= def.cargoCap || ore[tile] <= 0) {
         releaseReservation(internal, tile);
         hs.oreTile = -1;
-        unit.order = { kind: 'harvest', phase: unit.carry >= def.cargoCap ? 'toRefinery' : 'seek' };
+        if (unit.carry >= def.cargoCap) goRefinery(internal, unit, hs);
+        else unit.order = { kind: 'harvest', phase: 'seek' };
       }
       break;
     }
     case 'toRefinery': {
-      const r = nearestRefinery(world, unit.team, { x: unit.x, y: unit.y });
-      if (!r) { unit.order = { kind: 'harvest', phase: 'waiting' }; hs.timer = 2; break; }
-      if (hs.refineryId !== r.id || (unit.path.length === 0 && !unit.moving)) {
-        const dock = dockTile(r);
-        const dAlready = distCC({ x: unit.x, y: unit.y }, dock);
-        if (dAlready <= 1.6 && hs.refineryId === r.id) {
+      let r = hs.refineryId !== null ? world.buildings.get(hs.refineryId) : undefined;
+      if (!r || r.team !== unit.team) {
+        leaveQueues(internal, unit.id);
+        r = chooseRefinery(world, internal, blocked, unit, hs.banT > 0 ? hs.banRef : -1) ?? undefined;
+        if (!r) { hs.refineryId = null; unit.order = { kind: 'harvest', phase: 'waiting' }; hs.timer = 2; break; }
+        hs.refineryId = r.id;
+        hs.lastRef = r.id;
+        hs.slot = -1;
+        unit.path = [];
+      }
+      const dock = getDock(internal, r.id);
+      const dc = dockCenter(world, blocked, r);
+      if (dock.occupant === unit.id) {
+        const d = distCC(unit, dc);
+        if (d <= 0.45 || (d < 1.3 && unit.path.length === 0 && !unit.moving)) {
           hs.timer = def.unloadTime;
+          unit.path = [];
           unit.order = { kind: 'harvest', phase: 'unloading' };
-          break;
+        } else if (unit.path.length === 0 && !unit.moving) {
+          setPath(world, blocked, unit, dc, null);
+          if (unit.path.length === 0) { hs.timer = def.unloadTime; unit.order = { kind: 'harvest', phase: 'unloading' }; }
         }
-        if (unit.path.length === 0) {
-          hs.refineryId = r.id;
-          const free = nearestFree(blocked, w, h, Math.floor(dock.x), Math.floor(dock.y), 5) ?? { x: Math.floor(dock.x), y: Math.floor(dock.y) };
-          const p = findPath(blocked, w, h, Math.floor(unit.x), Math.floor(unit.y), free.x, free.y);
-          unit.path = p ?? [];
-          if (unit.path.length === 0) {
-            // deja ajuns sau blocat chiar lângă doc
-            hs.timer = def.unloadTime;
-            unit.order = { kind: 'harvest', phase: 'unloading' };
-          }
-        }
+        break;
+      }
+      if (!dock.queue.includes(unit.id)) dock.queue.push(unit.id);
+      if (dock.occupant === null && dock.queue[0] === unit.id) {
+        dock.queue.shift();
+        dock.occupant = unit.id;
+        hs.slot = -1;
+        setPath(world, blocked, unit, dc, null);
+        break;
+      }
+      const slotIdx = dock.queue.indexOf(unit.id);
+      if (slotIdx !== hs.slot) {
+        hs.slot = slotIdx;
+        const sp = queueSlot(world, blocked, r, slotIdx);
+        if (distCC(unit, sp) > 0.3) setPath(world, blocked, unit, sp, dc);
       }
       break;
     }
@@ -179,14 +325,14 @@ export function updateHarvester(world: World, internal: Internal, blocked: Uint8
       unit.carry -= amount;
       world.players[unit.team].credits += amount;
       world.events.push({ type: 'unload', team: unit.team, x: unit.x, y: unit.y, amount });
-      if (unit.carry <= 0) { hs.refineryId = null; unit.order = { kind: 'harvest', phase: 'seek' }; }
+      if (unit.carry <= 0) { hs.slot = -1; unit.order = { kind: 'harvest', phase: 'seek' }; /* refineryId rămâne până pleacă de pe dock */ }
       break;
     }
     case 'waiting': {
       hs.timer -= dt;
       if (hs.timer > 0) break;
       hs.timer = 2;
-      if (nearestRefinery(world, unit.team, { x: unit.x, y: unit.y })) unit.order = { kind: 'harvest', phase: 'toRefinery' };
+      if (nearestRefinery(world, unit.team, { x: unit.x, y: unit.y })) goRefinery(internal, unit, hs);
       break;
     }
   }
@@ -256,11 +402,11 @@ export function spawnUnit(world: World, _internal: Internal, team: Team, type: U
   const u: Unit = {
     id: world.nextId++, kind: 'unit', type, team, x, y,
     angle: 0, turretAngle: 0, hp: UNITS[type].hp, maxHp: UNITS[type].hp,
-    order: type === 'harvester' ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' },
+    order: UNITS[type].cargoCap > 0 ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' },
     path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: type === 'bomber' ? BOMBER_PAYLOAD : 0, role: 'attack', kills: 0, rank: 0,
   };
   world.units.set(u.id, u);
-  if (type !== 'harvester' && rally && UNITS[type].domain === 'ground') {
+  if (UNITS[type].cargoCap === 0 && rally && UNITS[type].domain === 'ground') {
     u.order = { kind: 'move', x: rally.x, y: rally.y };
   }
   return u;
@@ -401,8 +547,10 @@ export function updateProduction(world: World, internal: Internal, blocked: Uint
       queue.shift();
       const exitDock = { x: prod.tx + prod.w / 2, y: prod.ty + prod.h + 0.5 };
       const free = nearestFree(blocked, world.map.w, world.map.h, Math.floor(exitDock.x), Math.floor(exitDock.y), 5) ?? { x: Math.floor(exitDock.x), y: Math.floor(exitDock.y) };
-      const rally = p.production.rally ?? { x: exitDock.x, y: exitDock.y + 2.5 };
-      const u = spawnUnit(world, internal, p.team, head.type, free.x + 0.5, free.y + 0.5, head.type === 'harvester' ? null : rally);
+      const rally = p.production.rally ?? { x: exitDock.x, y: exitDock.y + 4 };
+      const u = spawnUnit(world, internal, p.team, head.type, free.x + 0.5, free.y + 0.5, null);
+      // unitățile noi ocupă sloturi libere pe o grilă în jurul punctului de adunare
+      if (UNITS[head.type].cargoCap === 0) rallyUnit(world, internal, blocked, u, rally);
       world.events.push({ type: 'unitReady', team: p.team, id: u.id, unit: head.type });
     }
   }
