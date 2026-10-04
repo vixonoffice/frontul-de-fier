@@ -37,7 +37,7 @@ export function createWorld(setup: GameSetup): World {
       credits: STARTING_CREDITS,
       isAI: pl.isAI,
       difficulty: pl.difficulty,
-      assist: { economy: false, defense: false, attack: false },
+      assist: { economy: false, defense: false, attack: false, allIn: false },
       production: { building: null, units: [], infantry: [], air: [], rally: null },
       defeated: false,
     })),
