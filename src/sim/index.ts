@@ -16,6 +16,8 @@ import { canWeaponTarget, findTarget, updateProjectiles, updateTurretBuilding, u
 import { findPath } from './path';
 import { issueMoveOrder, stepMovement } from './movement';
 import { runAI } from './ai';
+import { runAssist } from './assist';
+import { updateGuards } from './guard';
 import { commandAir, isAir, updateAllBombers } from './air';
 import { UNITS } from '../data/units';
 import { center, sortedBuildingIds, sortedUnitIds } from './entities';
@@ -80,7 +82,7 @@ function filterOwnIds(world: World, team: Team, ids: readonly EntityId[]): Entit
   });
 }
 
-function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
+function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssist = false): void {
   const internal = getInternal(world);
   switch (cmd.t) {
     case 'move': {
@@ -89,6 +91,8 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       if (air.length) commandAir(world, internal, air, 'move', cmd.x, cmd.y);
       const ground = air.length ? ids.filter((id) => !air.includes(id)) : ids;
       if (ground.length) issueMoveOrder(world, internal, blocked, ground, cmd.x, cmd.y, 'move');
+      // un ordin de mutare dat unui gardian îi schimbă postul
+      if (!fromAssist) for (const id of ground) if (world.units.get(id)!.role === 'guard') { internal.guardPost.set(id, { x: cmd.x, y: cmd.y }); internal.guardState.delete(id); }
       break;
     }
     case 'attackMove': {
@@ -141,6 +145,7 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       for (const id of ids) {
         const u = world.units.get(id);
         if (!u || isAir(u)) continue;
+        if (!fromAssist && u.role === 'guard') { internal.guardPost.set(id, { x: u.x, y: u.y }); internal.guardState.delete(id); }
         const nav = getNav(internal, id);
         nav.flow = null;
         nav.engagedTarget = null;
@@ -174,10 +179,31 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array): void {
       handleBuildCancel(world, cmd.team);
       break;
     case 'train':
-      handleTrain(world, cmd.team, cmd.unit);
+      handleTrain(world, cmd.team, cmd.unit, cmd.count ?? 1);
       break;
     case 'trainCancel':
-      handleTrainCancel(world, cmd.team, cmd.unit);
+      handleTrainCancel(world, cmd.team, cmd.unit, cmd.all ?? false);
+      break;
+    case 'role': {
+      for (const id of filterOwnIds(world, cmd.team, cmd.ids)) {
+        const u = world.units.get(id)!;
+        if (u.type === 'harvester') continue;
+        u.role = cmd.role;
+        if (!fromAssist) internal.playerRole.add(id);
+        internal.guardState.delete(id);
+        if (cmd.role === 'guard') {
+          // postul: unde a fost trimis ultima oară cu move, altfel locul curent (sau cel ales de asistent)
+          const pend = fromAssist ? internal.pendingPost.get(id) : undefined;
+          internal.pendingPost.delete(id);
+          internal.guardPost.set(id, pend ?? (u.order.kind === 'move' ? { x: u.order.x, y: u.order.y } : { x: u.x, y: u.y }));
+        } else {
+          internal.guardPost.delete(id);
+        }
+      }
+      break;
+    }
+    case 'assist':
+      world.players[cmd.team].assist[cmd.mode] = cmd.on;
       break;
     case 'sell':
       handleSell(world, cmd.team, cmd.id);
@@ -213,6 +239,7 @@ export function step(world: World, commands: Command[]): void {
 
   for (const cmd of commands) applyCommand(world, cmd, blocked);
   if (world.winner === null) {
+    for (const cmd of runAssist(world, internal)) applyCommand(world, cmd, blocked, true);
     const aiCommands = runAI(world, internal, DT);
     for (const cmd of aiCommands) applyCommand(world, cmd, blocked);
   }
@@ -223,6 +250,7 @@ export function step(world: World, commands: Command[]): void {
   }
   updateProduction(world, internal, blocked, DT);
   updateAllBombers(world, internal, DT);
+  updateGuards(world, internal, blocked);
 
   const unitIds = sortedUnitIds(world);
   const buildingIds = sortedBuildingIds(world);
@@ -270,6 +298,7 @@ export function hash(world: World): number {
     h = mix(h, Math.round(u.turretAngle * 1000));
     h = mix(h, Math.round(u.alt * 1000));
     h = mix(h, u.ammo);
+    h = mix(h, u.role === 'guard' ? 1 : 0);
     h = mix(h, ORDER_CODE[u.order.kind]);
   }
   for (const id of sortedBuildingIds(world)) {
@@ -282,8 +311,9 @@ export function hash(world: World): number {
   for (const p of world.players) {
     h = mix(h, Math.round(p.credits * 1000));
     h = mix(h, p.production.units.length * 100 + p.production.infantry.length * 10 + p.production.air.length);
+    h = mix(h, (p.assist.economy ? 1 : 0) | (p.assist.defense ? 2 : 0) | (p.assist.attack ? 4 : 0) | (p.assist.allIn ? 8 : 0));
     for (const q of [p.production.units, p.production.infantry, p.production.air]) {
-      if (q[0]) h = mix(h, Math.round(q[0].progress * 1000));
+      if (q[0]) { h = mix(h, Math.round(q[0].progress * 1000)); h = mix(h, q[0].paid ? 1 : 0); }
     }
     h = mix(h, p.defeated ? 1 : 0);
   }

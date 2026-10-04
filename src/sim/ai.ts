@@ -9,6 +9,7 @@ import type { Internal } from './internal';
 import { getAIMemory } from './internal';
 import { isVisible } from './fog';
 import { canPlaceBuilding } from './economy';
+import { findPlacement } from './placement';
 import { chance, nextFloat, pick } from './rng';
 import { center, distCC, sortedBuildingIds, sortedUnitIds, teamBuildingsOfType } from './entities';
 import { PI, fcos, fsin } from './fmath';
@@ -207,7 +208,7 @@ function decide(world: World, internal: Internal, team: Team, difficulty: Diffic
 
   // plasează clădirea gata, dacă există una în așteptare
   if (p.production.building && p.production.building.ready) {
-    const spot = tryPlaceNear(world, team, p.production.building.type, anchor);
+    const spot = findPlacement(world, team, p.production.building.type, anchor) ?? tryPlaceNear(world, team, p.production.building.type, anchor);
     if (spot) cmds.push({ t: 'buildPlace', team, tx: spot.tx, ty: spot.ty });
   } else if (!p.production.building) {
     const count = (t: Building['type']) => teamBuildingsOfType(world, team, t).length;

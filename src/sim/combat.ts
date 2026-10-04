@@ -119,6 +119,11 @@ export function applyDamage(world: World, internal: Internal, target: Entity, ra
   const dmg = rawDamage * mult;
   target.hp -= dmg;
   if (target.kind === 'unit') internal.lastDamageTick.set(target.id, world.tick);
+  // lovitură în clădire sau recoltor: declanșează gardienii
+  if (target.kind === 'building' || target.type === 'harvester') {
+    const hc = center(target);
+    internal.lastHit.set(target.team, { x: hc.x, y: hc.y, tick: world.tick });
+  }
   const c = center(target);
   if (!world.players[target.team].defeated) noteUnderAttack(world, internal, target.team, c);
   if (target.hp <= 0) destroyEntity(world, internal, target);
@@ -134,6 +139,9 @@ export function destroyEntity(world: World, internal: Internal, target: Entity):
     internal.harvest.delete(target.id);
     internal.bomber.delete(target.id);
     internal.lastDamageTick.delete(target.id);
+    internal.guardPost.delete(target.id);
+    internal.guardState.delete(target.id);
+    internal.playerRole.delete(target.id);
   } else {
     world.buildings.delete(target.id);
   }

@@ -107,7 +107,7 @@ describe('economy: production and placement', () => {
     expect(placed).toBe(true);
 
     for (let i = 0; i < 7; i++) step(world, [cmd]);
-    expect(world.players[0].production.units.length).toBeLessThanOrEqual(5);
+    expect(world.players[0].production.units.length).toBeLessThanOrEqual(99); // coada lungă (MAX_QUEUE), plătită pe rând
 
     let unitReady = false;
     for (let i = 0; i < 400 && !unitReady; i++) {
