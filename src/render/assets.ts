@@ -97,6 +97,17 @@ export function preloadAssets(): void {
   for (const s of Object.values(SPECS)) if (s) files.add(s.file);
   for (const f of SCENERY_FILES) files.add(f);
   for (const f of files) {
+    // varianta publicata intr-un singur fisier: modelele vin inline, in base64, in window.__FDF_MODELS
+    const inline = (window as unknown as { __FDF_MODELS?: Record<string, string> }).__FDF_MODELS?.[f];
+    if (inline) {
+      try {
+        const bin = atob(inline);
+        const buf = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+        loader.parse(buf.buffer, '', (gltf) => { loaded.set(f, gltf); assetsVersion++; }, () => { failed.add(f); });
+      } catch { failed.add(f); }
+      continue;
+    }
     loader.load(
       baseUrl(f),
       (gltf) => { loaded.set(f, gltf); assetsVersion++; },
