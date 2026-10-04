@@ -669,13 +669,55 @@ export function grassMaterial(variant: 0 | 1 = 0): THREE.MeshStandardMaterial {
   return mat('grass' + variant, variant === 0 ? 0x86a04e : 0xb3aa62, { roughness: 0.95, metalness: 0 });
 }
 
-// TODO etapa 2: modele proprii pentru unitățile și clădirile noi (deocamdată refolosesc ce există)
+// --- etapa 2: placeholdere procedurale pentru tipurile noi (se vad pana se incarca GLB-ul) ---
+export function createSoldier(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(new THREE.CapsuleGeometry(0.1, 0.22, 3, 8), hullMat(team));
+  body.position.y = 0.24;
+  g.add(body);
+  const head = new THREE.Mesh(new THREE.SphereGeometry(0.075, 8, 6), mat('skin', 0xc89a72, { metalness: 0 }));
+  head.position.y = 0.47;
+  g.add(head);
+  g.add(box(0.04, 0.04, 0.3, darkMetal(), 0.1, 0.28, 0.14));
+  g.userData.riseHeight = 0;
+  enableShadows(g);
+  return g;
+}
+
+export function createBomber(team: Team): THREE.Group {
+  const g = new THREE.Group();
+  const tilt = new THREE.Group();
+  g.add(tilt);
+  tilt.add(box(0.22, 0.2, 1.2, hullMat(team), 0, 0.1, 0));
+  tilt.add(box(1.5, 0.05, 0.38, bevelMat(team), 0, 0.08, -0.1));
+  tilt.add(box(0.5, 0.04, 0.24, bevelMat(team), 0, 0.1, -0.55));
+  tilt.add(box(0.04, 0.26, 0.22, teamMat(team), 0, 0.26, -0.5));
+  g.userData.tilt = tilt;
+  enableShadows(g);
+  return g;
+}
+
+/** placeholder generic de cladire: platforma + volum + steag de echipa */
+function placeholderBuilding(team: Team, w: number, d: number, h: number): THREE.Group {
+  const g = new THREE.Group();
+  g.add(foundation(w - 0.1, d - 0.1));
+  g.add(box(w * 0.7, h, d * 0.7, concreteMat(), 0, 0.1 + h / 2, 0));
+  g.add(box(w * 0.74, 0.1, d * 0.74, hullMat(team), 0, 0.1 + h, 0));
+  g.add(flag(team, w / 2 - 0.3, 0.1, d / 2 - 0.3, 1.2));
+  g.userData.footprint = { w, h: d };
+  g.userData.riseHeight = h + 0.4;
+  enableShadows(g);
+  return g;
+}
+export function createBarracks(team: Team): THREE.Group { return placeholderBuilding(team, 2, 2, 0.8); }
+export function createAirfield(team: Team): THREE.Group { return placeholderBuilding(team, 4, 3, 0.9); }
+
 export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THREE.Group> = {
-  soldier: createRocket,
-  bazooka: createRocket,
-  bomber: createTank,
-  barracks: createFactory,
-  airfield: createFactory,
+  soldier: createSoldier,
+  bazooka: createSoldier,
+  bomber: createBomber,
+  barracks: createBarracks,
+  airfield: createAirfield,
   rocketTurret: createTurret,
   tank: createTank,
   rocket: createRocket,
@@ -685,3 +727,6 @@ export const MODEL_FACTORY: Record<UnitType | BuildingType, (team: Team) => THRE
   factory: createFactory,
   turret: createTurret,
 };
+
+// ajutoare refolosite si de assets.ts (modelele GLB primesc aceeasi platforma/steag de echipa)
+export const procedural = { mat, foundation, flag, box, cyl, darkMetal, teamMat, enableShadows };

@@ -253,6 +253,7 @@ export class EffectsSystem {
   private readonly smoke: ParticlePool;
   private readonly fire: ParticlePool;
   private readonly dust: ParticlePool;
+  private readonly trail: ParticlePool;
   private readonly scorch: ParticlePool;
   private readonly track: ParticlePool;
   private readonly debris: DebrisPool;
@@ -274,11 +275,12 @@ export class EffectsSystem {
     this.fire = new ParticlePool(40, { mode: 'billboard', blending: THREE.AdditiveBlending, texture: glow }, camDir);
     this.smoke = new ParticlePool(140, { mode: 'billboard', blending: THREE.NormalBlending, texture: dark, gravity: -1.2 }, camDir);
     this.dust = new ParticlePool(80, { mode: 'billboard', blending: THREE.NormalBlending, texture: dark, gravity: -0.4 }, camDir);
+    this.trail = new ParticlePool(90, { mode: 'billboard', blending: THREE.AdditiveBlending, texture: glow }, camDir);
     this.scorch = new ParticlePool(40, { mode: 'decal', blending: THREE.NormalBlending, texture: dark }, camDir);
     this.track = new ParticlePool(220, { mode: 'decal', blending: THREE.NormalBlending, texture: dark }, camDir);
     this.debris = new DebrisPool(60);
 
-    for (const p of [this.flash, this.spark, this.fire, this.smoke, this.dust]) this.group.add(p.mesh);
+    for (const p of [this.flash, this.spark, this.fire, this.smoke, this.dust, this.trail]) this.group.add(p.mesh);
     this.scorch.mesh.renderOrder = 1;
     this.track.mesh.renderOrder = 1;
     this.group.add(this.scorch.mesh, this.track.mesh, this.debris.mesh);
@@ -299,7 +301,11 @@ export class EffectsSystem {
     }
   }
 
-  muzzleFlash(x: number, y: number, z: number, weapon: 'shell' | 'rocket'): void {
+  muzzleFlash(x: number, y: number, z: number, weapon: 'shell' | 'rocket' | 'bullet'): void {
+    if (weapon === 'bullet') {
+      this.flash.spawn(x, y, z, { life: 0.06, size0: 0.28, size1: 0.05, color: 0xffe9a8 });
+      return;
+    }
     const color = weapon === 'shell' ? 0xffd38a : 0xffac5a;
     this.flash.spawn(x, y, z, { life: 0.09, size0: 0.9, size1: 0.1, color });
     this.spark.spawn(x, y, z, { life: 0.25, size0: 0.15, size1: 0.02, color: 0xffe3a0, vx: (Math.random() - 0.5) * 2, vy: 1.5, vz: (Math.random() - 0.5) * 2 });
@@ -309,14 +315,48 @@ export class EffectsSystem {
     slot.life = 0.08;
   }
 
-  tracer(fromX: number, fromY: number, fromZ: number, toX: number, toY: number, toZ: number): void {
+  tracer(fromX: number, fromY: number, fromZ: number, toX: number, toY: number, toZ: number, life = 0.12): void {
     const i = this.tracerCursor;
     this.tracerCursor = (this.tracerCursor + 1) % this.tracerMax;
     const o = i * 6;
     this.tracerPos[o] = fromX; this.tracerPos[o + 1] = fromY; this.tracerPos[o + 2] = fromZ;
     this.tracerPos[o + 3] = toX; this.tracerPos[o + 4] = toY; this.tracerPos[o + 5] = toZ;
-    this.tracerLife[i] = 0.12;
+    this.tracerLife[i] = life;
     this.tracerGeo.attributes.position.needsUpdate = true;
+  }
+
+  /** scantei minuscule la impactul unui glont */
+  bulletSpark(x: number, y: number, z: number): void {
+    for (let i = 0; i < 3; i++) {
+      const ang = Math.random() * Math.PI * 2;
+      this.spark.spawn(x, y, z, {
+        life: 0.14 + Math.random() * 0.08, size0: 0.07, size1: 0.01, color: 0xffe6a0,
+        vx: Math.cos(ang) * 1.4, vy: 0.9 + Math.random() * 0.6, vz: Math.sin(ang) * 1.4,
+      });
+    }
+    this.dust.spawn(x, y, z, { life: 0.3, size0: 0.08, size1: 0.2, color: 0x9c9470, vy: 0.2 });
+  }
+
+  /** dara de condens / fum subtire in spatele avionului */
+  contrail(x: number, y: number, z: number): void {
+    this.trail.spawn(x, y, z, { life: 0.7, size0: 0.16, size1: 0.5, color: 0x9fb4c8, vy: 0.04 });
+  }
+
+  /** explozie mare de bomba: bila de foc, coloana de fum, unda de soc si zguduire de camera */
+  bombBlast(x: number, y: number, z: number, cameraDistance: number): void {
+    this.explosion(x, y, z, 1.9, cameraDistance);
+    this.flash.spawn(x, y + 0.5, z, { life: 0.18, size0: 4.2, size1: 1.2, color: 0xfff2c0 });
+    for (let i = 0; i < 7; i++) {
+      const a = (i / 7) * Math.PI * 2;
+      this.fire.spawn(x + Math.cos(a) * 0.7, y + 0.3, z + Math.sin(a) * 0.7, {
+        life: 0.5, size0: 1.0, size1: 0.3, color: 0xff7a2a, vx: Math.cos(a) * 1.6, vy: 1.2, vz: Math.sin(a) * 1.6,
+      });
+    }
+    for (let i = 0; i < 2; i++) {
+      this.smoke.spawn(x, y + 0.6 + i * 0.5, z, { life: 1.4, size0: 0.7, size1: 1.9, color: 0x2a2825, vy: 1.0 + Math.random() * 0.5 });
+    }
+    this.spawnShockwave(x, y, z, 2.8);
+    this.shake.trigger(Math.min(0.9, 0.5 + 2 / Math.max(4, cameraDistance * 0.2)), 0.55);
   }
 
   smokeTrail(x: number, y: number, z: number): void {
@@ -402,7 +442,7 @@ export class EffectsSystem {
 
   update(dt: number): void {
     this.flash.update(dt); this.spark.update(dt); this.fire.update(dt);
-    this.smoke.update(dt); this.dust.update(dt); this.scorch.update(dt); this.track.update(dt);
+    this.smoke.update(dt); this.dust.update(dt); this.trail.update(dt); this.scorch.update(dt); this.track.update(dt);
     this.debris.update(dt);
     this.shake.update(dt);
     for (const slot of this.lights) {
@@ -432,7 +472,7 @@ export class EffectsSystem {
   }
 
   dispose(): void {
-    for (const p of [this.flash, this.spark, this.fire, this.smoke, this.dust, this.scorch, this.track]) {
+    for (const p of [this.flash, this.spark, this.fire, this.smoke, this.dust, this.trail, this.scorch, this.track]) {
       p.mesh.geometry.dispose();
       (p.mesh.material as THREE.Material).dispose();
     }
