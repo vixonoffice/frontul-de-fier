@@ -6,27 +6,34 @@ import { TICK_RATE } from '../sim/types';
 export function initTopbar(ctx: UiContext): UiModule {
   const bar = el('div', { attrs: { id: 'topbar' }, parent: ctx.root });
 
-  const credits = el('div', { className: 'tb-stat', attrs: { id: 'tb-credits' }, parent: bar });
-  credits.innerHTML = `${iconSvg('ore')}<b class="tabular">0</b>`;
+  const credits = el('div', { className: 'tb-stat', attrs: { id: 'tb-credits', title: 'Credite' }, parent: bar });
+  credits.innerHTML = `${iconSvg('coin')}<span class="tb-col"><small>Credite</small><b class="tabular">0</b></span>`;
   const creditsVal = credits.querySelector('b') as HTMLElement;
 
-  const army = el('div', { className: 'tb-stat', attrs: { id: 'tb-army' }, parent: bar });
-  army.innerHTML = `${iconSvg('army')}<b class="tabular">0</b>`;
+  const army = el('div', { className: 'tb-stat', attrs: { id: 'tb-army', title: 'Trupe' }, parent: bar });
+  army.innerHTML = `${iconSvg('army')}<span class="tb-col"><small>Trupe</small><b class="tabular">0</b></span>`;
   const armyVal = army.querySelector('b') as HTMLElement;
 
   el('div', { className: 'tb-sep', parent: bar });
 
-  const wave = el('div', { className: 'tb-stat upper', attrs: { id: 'tb-wave' }, parent: bar });
-  wave.innerHTML = `<span class="tb-label-long">Atac inamic în</span> <b class="tabular">--:--</b>`;
+  const wave = el('div', { className: 'tb-stat', attrs: { id: 'tb-wave', title: 'Următorul atac inamic' }, parent: bar });
+  wave.innerHTML = `${iconSvg('alert')}<span class="tb-col"><small>Atac în</small><b class="tabular">--:--</b></span>`;
   const waveVal = wave.querySelector('b') as HTMLElement;
 
-  const pauseBtn = el('button', { attrs: { id: 'pauseBtn', type: 'button', 'aria-label': 'Pauză' }, parent: bar });
+  const helpBtn = el('button', { className: 'btn-sq', attrs: { id: 'helpBtn', type: 'button', 'aria-label': 'Ajutor' }, parent: bar });
+  helpBtn.innerHTML = '<span class="q">?</span>';
+  helpBtn.addEventListener('click', () => {
+    ctx.root.dispatchEvent(new CustomEvent('fdf-help'));
+  });
+
+  const pauseBtn = el('button', { className: 'btn-sq', attrs: { id: 'pauseBtn', type: 'button', 'aria-label': 'Pauză' }, parent: bar });
   pauseBtn.innerHTML = iconSvg('pause');
   pauseBtn.addEventListener('click', () => ctx.togglePause());
 
   // credite afișate care "ticăie" lin spre valoarea reală, nu sar brusc
   let shownCredits = ctx.world.players.find((p) => p.team === ctx.localTeam)?.credits ?? 0;
   let lastNow = performance.now();
+  let lastIcon = '';
 
   function dispose() {
     bar.remove();
@@ -45,16 +52,19 @@ export function initTopbar(ctx: UiContext): UiModule {
     if (Math.abs(real - shownCredits) < 0.5) shownCredits = real;
     creditsVal.textContent = String(Math.round(shownCredits));
 
-    const armyCount = Array.from(ctx.world.units.values()).filter(
-      (u) => u.team === ctx.localTeam && u.type !== 'harvester'
-    ).length;
+    let armyCount = 0;
+    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') armyCount++;
     armyVal.textContent = String(armyCount);
 
     const left = ctx.world.waveTimer / TICK_RATE;
     waveVal.textContent = formatTime(left);
     wave.classList.toggle('hot', left < 20);
 
-    pauseBtn.innerHTML = iconSvg(ctx.paused ? 'play' : 'pause');
+    const icon = ctx.paused ? 'play' : 'pause';
+    if (icon !== lastIcon) {
+      lastIcon = icon;
+      pauseBtn.innerHTML = iconSvg(icon);
+    }
   }
 
   return { update, dispose };

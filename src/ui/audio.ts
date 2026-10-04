@@ -87,8 +87,25 @@ export function initAudio(ctx: UiContext): UiModule {
         const v = volAt(e.x, e.y);
         if (v <= 0.02) return;
         budget--;
-        if (e.weapon === 'shell') { burst(v * 0.55, 0.16, 1800, 0.8); tone(v * 0.5, 0.14, 150, 45); }
-        else { burst(v * 0.35, 0.45, 2600, 1.5, 'bandpass'); tone(v * 0.12, 0.4, 500, 180, 'sawtooth'); }
+        switch (e.weapon) {
+          case 'shell': burst(v * 0.55, 0.16, 1800, 0.8); tone(v * 0.5, 0.14, 150, 45); break;
+          case 'rocket': burst(v * 0.35, 0.45, 2600, 1.5, 'bandpass'); tone(v * 0.12, 0.4, 500, 180, 'sawtooth'); break;
+          case 'bullet': burst(v * 0.22, 0.05, 4200, 1.2, 'highpass'); break;
+          case 'bomb': tone(v * 0.3, 0.5, 1100, 220, 'sine'); break; // șuierat de bombă care cade
+        }
+        break;
+      }
+      case 'hit': {
+        if (budget <= 0) return;
+        const v = volAt(e.x, e.y);
+        if (v <= 0.05) return;
+        budget--;
+        switch (e.weapon) {
+          case 'bullet': burst(v * 0.12, 0.04, 3000, 1, 'bandpass'); break;
+          case 'shell': burst(v * 0.4, 0.2, 900, 0.7); tone(v * 0.3, 0.15, 120, 40); break;
+          case 'rocket': burst(v * 0.5, 0.3, 1200, 0.7); tone(v * 0.35, 0.25, 100, 35); break;
+          case 'bomb': burst(v * 0.85, 0.6, 700, 0.6); tone(v * 0.7, 0.55, 80, 24); break;
+        }
         break;
       }
       case 'destroyed': {
@@ -119,6 +136,19 @@ export function initAudio(ctx: UiContext): UiModule {
         break;
     }
   }
+
+
+  /** Sunete de interfață: clic scurt, bâzâit de eroare, confirmare, anulare. */
+  function sfx(name: 'click' | 'error' | 'ok' | 'cancel'): void {
+    if (!ac || ac.state !== 'running') return;
+    switch (name) {
+      case 'click': tone(0.1, 0.05, 1300, 900, 'square'); break;
+      case 'ok': tone(0.12, 0.07, 700, 700, 'triangle'); tone(0.12, 0.1, 1050, 1050, 'triangle', 0.07); break;
+      case 'cancel': tone(0.1, 0.07, 700, 500, 'triangle'); tone(0.1, 0.1, 480, 330, 'triangle', 0.07); break;
+      case 'error': tone(0.14, 0.12, 170, 120, 'sawtooth'); tone(0.14, 0.14, 150, 100, 'sawtooth', 0.13); break;
+    }
+  }
+  ctx.sfx = sfx;
 
   function update(): void {
     budget = MAX_PER_TICK;

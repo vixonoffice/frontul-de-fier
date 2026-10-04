@@ -7,10 +7,13 @@ interface Ping { x: number; y: number; born: number }
 export function initMinimap(ctx: UiContext): UiModule {
   const panel = el('div', { attrs: { id: 'minimapPanel' }, parent: ctx.root });
   const head = el('div', { className: 'mm-head upper', parent: panel });
-  head.innerHTML = '<span>Hartă</span>';
-  const stack = el('div', { className: 'mm-stack', parent: panel });
+  head.innerHTML = '<span>Radar</span><span class="mm-led"></span>';
+  const well = el('div', { className: 'mm-well', parent: panel });
+  const stack = el('div', { className: 'mm-stack', parent: well });
   const bg = el('canvas', { attrs: { id: 'minimap', 'aria-label': 'Hartă mică' }, parent: stack });
   const fx = el('canvas', { attrs: { id: 'minimapFx' }, parent: stack });
+  el('div', { className: 'mm-sweep', parent: stack });
+  el('div', { className: 'mm-grid', parent: stack });
 
   const mapW = ctx.world.map.w;
   const mapH = ctx.world.map.h;
@@ -39,10 +42,10 @@ export function initMinimap(ctx: UiContext): UiModule {
   resizeFx();
 
   const TEAM_RGB: Record<number, [number, number, number]> = {
-    0: [61, 155, 255],
-    1: [255, 74, 58],
-    2: [111, 217, 127],
-    3: [240, 177, 58],
+    0: [90, 180, 255],
+    1: [255, 80, 60],
+    2: [140, 230, 130],
+    3: [240, 190, 70],
   };
 
   function drawBg() {
@@ -51,14 +54,14 @@ export function initMinimap(ctx: UiContext): UiModule {
     const data = img.data;
     for (let i = 0; i < map.w * map.h; i++) {
       const seenState = fog[i];
-      let r = 10, g = 11, b = 9;
+      let r = 5, g = 12, b = 8;
       if (seenState > 0) {
         if (map.terrain[i] === TERRAIN_ROCK) {
-          r = 38; g = 41; b = 35;
+          r = 16; g = 30; b = 22;
         } else if (map.ore[i] > 0) {
-          r = 150; g = 115; b = 42;
+          r = 222; g = 166; b = 48;
         } else {
-          r = 42; g = 46; b = 36;
+          r = 30; g = 62; b = 38;
         }
         if (seenState === 1) {
           r *= 0.55; g *= 0.55; b *= 0.55;
@@ -102,8 +105,8 @@ export function initMinimap(ctx: UiContext): UiModule {
   function drawFx() {
     fxCtx.clearRect(0, 0, fxW, fxH);
     const quad = ctx.renderer.viewQuad();
-    fxCtx.strokeStyle = '#ffffff';
-    fxCtx.lineWidth = 1;
+    fxCtx.strokeStyle = '#f5e6a8';
+    fxCtx.lineWidth = 1.5;
     fxCtx.beginPath();
     quad.forEach((p, i) => {
       const s = worldToMiniPx(p.x, p.y);

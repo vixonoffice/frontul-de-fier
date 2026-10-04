@@ -1,33 +1,41 @@
-// Metadate DOAR pentru afișare în UI (nume, cost, timp aproximativ pentru desenarea progresului).
-// Nu sunt regulile reale de joc — acelea trăiesc în simulare (src/data, la integrare).
-// Costurile de aici oglindesc reference/prototip-v1.html ca să fie coerente până la integrare.
-import type { BuildingType, UnitType } from '../sim/types';
+// Ajutoare de afișare. Costurile, timpii, numele și descrierile vin DIN src/data (sursa unică);
+// aici sunt doar listele de ordine, grupările pe tab-uri și textele de interfață.
+import type { BuildingType, ProducerType, UnitType } from '../sim/types';
+import { BUILDINGS } from '../data/buildings';
+import { UNITS } from '../data/units';
 
-export interface BuildableInfo {
-  name: string;
-  cost: number;
-  time: number; // secunde, doar pentru desenarea barei de progres dacă sim nu a mai raportat alt progres
+/** Ordinea cardurilor în tab-ul de clădiri. */
+export const BUILD_LIST: BuildingType[] = ['refinery', 'factory', 'barracks', 'turret', 'rocketTurret', 'airfield'];
+
+/** Unitățile, grupate după clădirea care le face. */
+export const UNIT_GROUPS: Record<ProducerType, UnitType[]> = {
+  factory: ['tank', 'rocket', 'harvester'],
+  barracks: ['soldier', 'bazooka'],
+  airfield: ['bomber'],
+};
+
+export const PRODUCERS: ProducerType[] = ['factory', 'barracks', 'airfield'];
+/** Numele cozii din Production pentru fiecare clădire producătoare. */
+export const QUEUE_KEY = { factory: 'units', barracks: 'infantry', airfield: 'air' } as const;
+/** Lungimea maximă a unei cozi (vezi comentariul din Production). */
+export const QUEUE_MAX = 5;
+
+export function isUnitType(t: string): t is UnitType {
+  return t in UNITS;
 }
-
-export const BUILDING_INFO: Record<BuildingType, BuildableInfo> = {
-  hq: { name: 'Cartier General', cost: 0, time: 0 },
-  refinery: { name: 'Rafinărie', cost: 1000, time: 8 },
-  factory: { name: 'Fabrică', cost: 1200, time: 10 },
-  turret: { name: 'Turelă', cost: 600, time: 6 },
-  barracks: { name: 'Cazarmă', cost: 500, time: 6 },
-  airfield: { name: 'Aerodrom', cost: 2000, time: 14 },
-  rocketTurret: { name: 'Turelă antiaeriană', cost: 900, time: 8 },
-};
-
-export const UNIT_INFO: Record<UnitType, BuildableInfo> = {
-  tank: { name: 'Tanc', cost: 600, time: 6 },
-  rocket: { name: 'Lansator', cost: 800, time: 8 },
-  harvester: { name: 'Recoltor', cost: 900, time: 9 },
-  soldier: { name: 'Soldat', cost: 150, time: 3 },
-  bazooka: { name: 'Antitanc', cost: 300, time: 5 },
-  bomber: { name: 'Bombardier', cost: 1400, time: 14 },
-};
-
-// Ordinea în care apar cardurile pe fiecare tab.
-export const BUILDABLE_BUILDINGS: BuildingType[] = ['factory', 'refinery', 'turret'];
-export const BUILDABLE_UNITS: UnitType[] = ['tank', 'rocket', 'harvester'];
+export function nameOf(t: BuildingType | UnitType): string {
+  return isUnitType(t) ? UNITS[t].name : BUILDINGS[t].name;
+}
+export function costOf(t: BuildingType | UnitType): number {
+  return isUnitType(t) ? UNITS[t].cost : BUILDINGS[t].cost;
+}
+export function descOf(t: BuildingType | UnitType): string {
+  return isUnitType(t) ? UNITS[t].desc : BUILDINGS[t].desc;
+}
+export function timeOf(t: BuildingType | UnitType): number {
+  return isUnitType(t) ? UNITS[t].buildTime : BUILDINGS[t].buildTime;
+}
+/** Tipul de unitate poate ataca? (avioanele bombardează, recoltorul nu are armă) */
+export function canShoot(t: UnitType): boolean {
+  return UNITS[t].weapon !== null && t !== 'bomber';
+}

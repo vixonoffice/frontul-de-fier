@@ -1,18 +1,20 @@
 // Punctul central al UI-ului: bucla de joc cu tick fix, bufferul de comenzi, și asamblarea
-// tuturor submodulelor (bară de sus, minihartă, panou de construcție, input, ecrane, toasturi).
-import { TICK_RATE, type Command, type GameSetup, type SimAPI, type Team, type SimEvent } from '../sim/types';
+// tuturor submodulelor (bară de sus, minihartă, panou de construcție, input, ecrane, sfaturi).
+import { TICK_RATE, type Command, type Difficulty, type GameSetup, type SimAPI, type Team, type SimEvent } from '../sim/types';
 import type { CreateRenderer } from '../render/api';
 import type { UiContext, UiModule, GameStats } from './context';
 import { el } from './dom';
 import { initTopbar } from './topbar';
 import { initMinimap } from './minimap';
-import { initSelectionPanel } from './selectionPanel';
+import { initCommandBar } from './commandBar';
+import { initQuickBar } from './quickBar';
 import { initBuildPanel } from './buildPanel';
-import { initMobileToolbar } from './mobileToolbar';
 import { initInput } from './input';
 import { initScreens } from './screens';
 import { initToasts } from './toasts';
 import { initAudio } from './audio';
+import { initTips } from './tips';
+import { initHelp } from './help';
 
 export interface GameHandle {
   pause(): void;
@@ -28,6 +30,12 @@ export interface StartGameOptions {
   createRenderer: CreateRenderer;
   setup: GameSetup;
   localTeam: Team;
+  /** Dificultatea afișată pe ecranul de final (implicit cea a primului AI). */
+  difficulty?: Difficulty;
+  /** Sare peste ecranul de start (la "Joacă din nou"). */
+  autoStart?: boolean;
+  /** Cere pornirea unui meci nou, fără reîncărcarea paginii. */
+  onRestart?: (difficulty: Difficulty) => void;
 }
 
 const TICK_DT = 1 / TICK_RATE;
@@ -42,6 +50,7 @@ export function startGame(opts: StartGameOptions): GameHandle {
 
   const stage = el('div', { attrs: { id: 'stage' }, parent: root });
   const canvas = el('canvas', { attrs: { id: 'gamecanvas' }, parent: stage });
+  const bottom = el('div', { attrs: { id: 'hudBottom' }, parent: stage });
   const renderer = createRenderer(canvas);
   renderer.setLocalTeam(localTeam);
   for (const b of world.buildings.values()) {
@@ -51,70 +60,120 @@ export function startGame(opts: StartGameOptions): GameHandle {
   const isTouch = (matchMedia('(pointer: coarse)').matches) || navigator.maxTouchPoints > 0;
 
   let pendingCommands: Command[] = [];
+  const cmdListeners: ((c: Command) => void)[] = [];
 
   const stats: GameStats = { startTick: 0, unitsBuilt: 0, unitsLost: 0, buildingsDestroyed: 0, creditsEarned: 0 };
+  const aiDiff = world.players.find((p) => p.isAI)?.difficulty ?? 'easy';
+
+  function myBuildings() {
+    return Array.from(world.buildings.values()).filter((b) => b.team === localTeam);
+  }
 
   const ctx: UiContext = {
     root,
     stageEl: stage,
+    bottomEl: bottom,
     sim,
     renderer,
     localTeam,
     isTouch,
     world,
     stats,
-    paused: true, // pornește pe ecranul de start; "Începe" îl dezactivează
+    paused: !opts.autoStart, // pornește pe ecranul de start; "Începe" îl dezactivează
     gameOver: false,
+    started: !!opts.autoStart,
+    helpOpen: false,
+    difficulty: opts.difficulty ?? aiDiff,
     speed: 1,
-    attackMoveArmed: false,
+    tool: null,
     placing: null,
-    pickingRally: false,
+    placeTile: null,
+    buildTab: 'buildings',
     selection: [],
     groups: new Map(),
     lastEventPos: null,
 
     queueCommand(cmd) {
       pendingCommands.push(cmd);
+      for (const cb of cmdListeners) cb(cmd);
+    },
+    onCommand(cb) {
+      cmdListeners.push(cb);
     },
     setSelection(ids) {
       ctx.selection = ids;
       renderer.setSelection(ids);
     },
-    armAttackMove(v) {
-      ctx.attackMoveArmed = v;
+    setTool(t) {
+      ctx.tool = t;
+      if (t) ctx.cancelPlacing();
     },
     startPlacing(type) {
       ctx.placing = type;
-      ctx.pickingRally = false;
+      ctx.placeTile = null;
+      ctx.tool = null;
     },
     cancelPlacing() {
       ctx.placing = null;
+      ctx.placeTile = null;
       renderer.setGhost(null);
+    },
+    setPlaceTile(tx, ty) {
+      ctx.placeTile = { tx, ty };
     },
     tryPlaceAt(tx, ty) {
       const type = ctx.placing;
-      if (!type) return;
+      if (!type) return false;
       if (sim.canPlace(world, localTeam, type, tx, ty)) {
         ctx.queueCommand({ t: 'buildPlace', team: localTeam, tx, ty });
-        ctx.placing = null;
-        renderer.setGhost(null);
-      } else {
-        ctx.toast('Nu se poate plasa aici.', 'bad');
+        ctx.cancelPlacing();
+        ctx.sfx('ok');
+        return true;
       }
+      ctx.sfx('error');
+      ctx.toast('Aici nu merge: pune clădirea pe teren liber, aproape de bază.', 'bad');
+      return false;
     },
-    startRallyPick() {
-      ctx.pickingRally = true;
+    confirmPlace() {
+      const t = ctx.placeTile;
+      if (t) ctx.tryPlaceAt(t.tx, t.ty);
     },
-    cancelRallyPick() {
-      ctx.pickingRally = false;
+    setBuildTab(t) {
+      ctx.buildTab = t;
     },
-    setRallyAt(x, y) {
-      ctx.queueCommand({ t: 'rally', team: localTeam, x, y });
-      ctx.pickingRally = false;
-      renderer.pulse({ x, y }, 'move');
+    selectArmy() {
+      const ids = Array.from(world.units.values())
+        .filter((u) => u.team === localTeam && u.type !== 'harvester')
+        .map((u) => u.id);
+      if (!ids.length) {
+        ctx.toast('Încă n-ai trupe. Antrenează soldați sau tancuri.', 'bad');
+        ctx.sfx('error');
+        return;
+      }
+      ctx.setSelection(ids);
+    },
+    idleHarvesters() {
+      return Array.from(world.units.values())
+        .filter((u) => u.team === localTeam && u.type === 'harvester' && u.order.kind === 'idle')
+        .map((u) => u.id);
+    },
+    selectIdleHarvesters() {
+      const ids = ctx.idleHarvesters();
+      if (!ids.length) return;
+      ctx.setSelection(ids);
+      const u = world.units.get(ids[0]);
+      if (u) renderer.centerOn({ x: u.x, y: u.y });
+    },
+    centerBase() {
+      const mine = myBuildings();
+      const hq = mine.find((b) => b.type === 'hq') ?? mine[0];
+      if (hq) renderer.centerOn({ x: hq.tx + hq.w / 2, y: hq.ty + hq.h / 2 });
     },
     toast() {
       /* suprascris mai jos, după crearea modulului de toasturi */
+    },
+    sfx() {
+      /* suprascris de modulul audio */
     },
     togglePause() {
       if (ctx.gameOver) return;
@@ -123,6 +182,14 @@ export function startGame(opts: StartGameOptions): GameHandle {
     setSpeed(s) {
       ctx.speed = s;
     },
+    setDifficulty(d) {
+      ctx.difficulty = d;
+      for (const p of world.players) if (p.isAI) p.difficulty = d;
+    },
+    restart() {
+      if (opts.onRestart) opts.onRestart(ctx.difficulty);
+      else location.reload();
+    },
   };
 
   if (import.meta.env.DEV) (window as unknown as { __fdf: UiContext }).__fdf = ctx;
@@ -130,16 +197,20 @@ export function startGame(opts: StartGameOptions): GameHandle {
   const toastsModule = initToasts(ctx);
   ctx.toast = (msg, kind) => toastsModule.push(msg, kind);
 
+  const audio = initAudio(ctx);
+
   const modules: UiModule[] = [
     toastsModule,
+    audio,
     initTopbar(ctx),
     initMinimap(ctx),
-    initSelectionPanel(ctx),
+    initQuickBar(ctx),
+    initCommandBar(ctx),
     initBuildPanel(ctx),
-    initMobileToolbar(ctx),
     initInput(ctx, canvas),
+    initHelp(ctx),
+    initTips(ctx),
     initScreens(ctx),
-    initAudio(ctx),
   ];
 
   function pruneDeadSelection() {
@@ -170,7 +241,9 @@ export function startGame(opts: StartGameOptions): GameHandle {
     for (const e of world.events) {
       trackStats(e);
       if (e.type === 'gameOver') ctx.gameOver = true;
-      for (const m of modules) m.handleEvent?.(e);
+      for (const m of modules) {
+        try { m.handleEvent?.(e); } catch (err) { console.error(err); }
+      }
     }
   }
 
@@ -207,7 +280,9 @@ export function startGame(opts: StartGameOptions): GameHandle {
       alpha = acc / TICK_DT;
     }
 
-    for (const m of modules) m.update();
+    for (const m of modules) {
+      try { m.update(); } catch (err) { console.error(err); }
+    }
     renderer.render(world, alpha, dtSeconds);
     rafId = requestAnimationFrame(frame);
   }

@@ -1,6 +1,8 @@
 import type { UiContext, UiModule } from './context';
 import { el, clamp } from './dom';
-import type { EntityId, Vec } from '../sim/types';
+import type { BuildingType, EntityId, UnitType, Vec } from '../sim/types';
+import { BUILDINGS } from '../data/buildings';
+import { canShoot } from './buildData';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 350;
@@ -32,12 +34,13 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
   const ptrs = new Map<number, Pt>();
   let gest: Gesture = null;
   let hover: Pt | null = null;
+  let lastPtrType = 'mouse';
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let twoFinger: { dist: number; mid: Pt; moved: boolean; startedAt: number } | null = null;
   let lastTapAt = 0;
   let lastTapPos: Pt = { x: -999, y: -999 };
   let lastTapEntity: EntityId | null = null;
-  let ghostTile: { tx: number; ty: number } | null = null;
+  let ghostShown = false;
   const held = new Set<string>();
   const lastDigitTime = new Map<number, number>();
   let lastFrameAt = performance.now();
@@ -110,50 +113,106 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     ctx.setSelection(ids);
   }
 
-  function smartCommand(worldPt: Vec | null, entityId: EntityId | null) {
-    if (!worldPt || !ctx.selection.length) return;
-    if (entityId !== null && isEnemy(entityId)) {
-      ctx.queueCommand({ t: 'attack', team: ctx.localTeam, ids: [...ctx.selection], targetId: entityId });
-      ctx.renderer.pulse(worldPt, 'attack');
-      ctx.armAttackMove(false);
-      return;
-    }
-    const tx = Math.floor(worldPt.x);
-    const ty = Math.floor(worldPt.y);
+  function oreAt(wp: Vec): boolean {
     const map = ctx.world.map;
-    const oreHere = tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && map.ore[ty * map.w + tx] > 0;
-    const harvesterIds = ctx.selection.filter((id) => ctx.world.units.get(id)?.type === 'harvester');
-    if (oreHere && harvesterIds.length) {
-      ctx.queueCommand({ t: 'harvest', team: ctx.localTeam, ids: harvesterIds, x: worldPt.x, y: worldPt.y });
-      const rest = ctx.selection.filter((id) => !harvesterIds.includes(id));
-      if (rest.length) ctx.queueCommand({ t: 'move', team: ctx.localTeam, ids: rest, x: worldPt.x, y: worldPt.y });
-      ctx.renderer.pulse(worldPt, 'move');
-      ctx.armAttackMove(false);
+    const tx = Math.floor(wp.x);
+    const ty = Math.floor(wp.y);
+    return tx >= 0 && ty >= 0 && tx < map.w && ty < map.h && map.ore[ty * map.w + tx] > 0;
+  }
+  function unitsOf(ids: EntityId[], pred: (t: UnitType) => boolean): EntityId[] {
+    return ids.filter((id) => {
+      const u = ctx.world.units.get(id);
+      return !!u && pred(u.type);
+    });
+  }
+  const onlyUnits = (ids: EntityId[]) => ids.filter((id) => ctx.world.units.has(id));
+
+  /** Ordin dat cu o atingere / click dreapta, în funcție de ce e selectat și de ce e sub deget. */
+  function smartCommand(worldPt: Vec | null, entityId: EntityId | null) {
+    const sel = onlyUnits(ctx.selection);
+    if (!worldPt || !sel.length) return;
+    const team = ctx.localTeam;
+    const bombers = unitsOf(sel, (t) => t === 'bomber');
+    const harvesters = unitsOf(sel, (t) => t === 'harvester');
+    const shooters = unitsOf(sel, (t) => canShoot(t));
+    if (entityId !== null && isEnemy(entityId)) {
+      if (shooters.length) ctx.queueCommand({ t: 'attack', team, ids: shooters, targetId: entityId });
+      if (bombers.length) ctx.queueCommand({ t: 'bomb', team, ids: bombers, x: worldPt.x, y: worldPt.y });
+      const rest = sel.filter((id) => !shooters.includes(id) && !bombers.includes(id));
+      if (rest.length) ctx.queueCommand({ t: 'move', team, ids: rest, x: worldPt.x, y: worldPt.y });
+      ctx.renderer.pulse(worldPt, 'attack');
       return;
     }
-    if (ctx.attackMoveArmed) {
-      ctx.queueCommand({ t: 'attackMove', team: ctx.localTeam, ids: [...ctx.selection], x: worldPt.x, y: worldPt.y });
-      ctx.renderer.pulse(worldPt, 'attack');
-    } else {
-      ctx.queueCommand({ t: 'move', team: ctx.localTeam, ids: [...ctx.selection], x: worldPt.x, y: worldPt.y });
+    if (harvesters.length && oreAt(worldPt)) {
+      ctx.queueCommand({ t: 'harvest', team, ids: harvesters, x: worldPt.x, y: worldPt.y });
+      const rest = sel.filter((id) => !harvesters.includes(id));
+      if (rest.length) ctx.queueCommand({ t: 'move', team, ids: rest, x: worldPt.x, y: worldPt.y });
       ctx.renderer.pulse(worldPt, 'move');
+      return;
     }
-    ctx.armAttackMove(false);
+    ctx.queueCommand({ t: 'move', team, ids: sel, x: worldPt.x, y: worldPt.y });
+    ctx.renderer.pulse(worldPt, 'move');
+  }
+
+  /** Ordin dat de o unealtă armată din bara de comenzi (un singur tap, apoi unealta se stinge). */
+  function toolCommand(tool: NonNullable<UiContext['tool']>, worldPt: Vec | null, entityId: EntityId | null) {
+    if (!worldPt) return;
+    const team = ctx.localTeam;
+    const sel = onlyUnits(ctx.selection);
+    if (tool === 'rally') {
+      ctx.queueCommand({ t: 'rally', team, x: worldPt.x, y: worldPt.y });
+      ctx.renderer.pulse(worldPt, 'move');
+      ctx.sfx('ok');
+    } else if (tool === 'attackMove') {
+      const ids = unitsOf(sel, (t) => canShoot(t));
+      if (entityId !== null && isEnemy(entityId)) ctx.queueCommand({ t: 'attack', team, ids, targetId: entityId });
+      else ctx.queueCommand({ t: 'attackMove', team, ids, x: worldPt.x, y: worldPt.y });
+      ctx.renderer.pulse(worldPt, 'attack');
+      const rest = sel.filter((id) => !ids.includes(id));
+      if (rest.length) ctx.queueCommand({ t: 'move', team, ids: rest, x: worldPt.x, y: worldPt.y });
+    } else if (tool === 'harvest') {
+      const ids = unitsOf(sel, (t) => t === 'harvester');
+      if (!oreAt(worldPt)) ctx.toast('Aici nu e minereu. Caută zona aurie de pe hartă.', 'bad');
+      ctx.queueCommand({ t: 'harvest', team, ids, x: worldPt.x, y: worldPt.y });
+      ctx.renderer.pulse(worldPt, 'move');
+    } else if (tool === 'bomb') {
+      const ids = unitsOf(sel, (t) => t === 'bomber');
+      ctx.queueCommand({ t: 'bomb', team, ids, x: worldPt.x, y: worldPt.y });
+      ctx.renderer.pulse(worldPt, 'attack');
+    }
+    ctx.setTool(null);
+  }
+
+  function placementTile(wp: Vec, type: BuildingType): { tx: number; ty: number } {
+    const def = BUILDINGS[type];
+    const map = ctx.world.map;
+    return {
+      tx: clamp(Math.round(wp.x - def.w / 2), 0, map.w - 1),
+      ty: clamp(Math.round(wp.y - def.h / 2), 0, map.h - 1),
+    };
   }
 
   function handleTap(p: Pt, button: number, shift: boolean, isTouch: boolean) {
     const result = ctx.renderer.pick(p.x, p.y);
 
-    if (ctx.pickingRally) {
-      if (result.world) ctx.setRallyAt(result.world.x, result.world.y);
-      return;
-    }
     if (ctx.placing) {
       if (button === 2) {
         ctx.cancelPlacing();
-      } else if (ghostTile) {
-        ctx.tryPlaceAt(ghostTile.tx, ghostTile.ty);
+      } else if (result.world) {
+        const t = placementTile(result.world, ctx.placing);
+        if (isTouch) {
+          // pe telefon prima atingere doar alege locul; confirmarea e un buton separat
+          ctx.setPlaceTile(t.tx, t.ty);
+          ctx.sfx('click');
+        } else {
+          ctx.tryPlaceAt(t.tx, t.ty);
+        }
       }
+      return;
+    }
+    if (ctx.tool) {
+      if (button === 2) ctx.setTool(null);
+      else toolCommand(ctx.tool, result.world, result.entityId);
       return;
     }
     if (button === 2) {
@@ -173,7 +232,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       selectToggleOrReplace(result.entityId, shift);
       return;
     }
-    if (isTouch && ctx.selection.length) {
+    if (isTouch && onlyUnits(ctx.selection).length) {
       smartCommand(result.world, result.entityId);
       return;
     }
@@ -200,6 +259,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     const p = relPoint(e);
     ptrs.set(e.pointerId, p);
     hover = p;
+    lastPtrType = e.pointerType;
 
     if (ptrs.size >= 2) {
       clearLongPress();
@@ -229,6 +289,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
   function onPointerMove(e: PointerEvent) {
     const p = relPoint(e);
     hover = p;
+    if (e.pointerType === 'mouse') lastPtrType = 'mouse';
     if (!ptrs.has(e.pointerId)) return;
     ptrs.set(e.pointerId, p);
 
@@ -252,7 +313,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       const { x0, y0, isTouch: touchStart, button } = gest;
       if (distPt(p, { x: x0, y: y0 }) <= DRAG_THRESHOLD) return;
       clearLongPress();
-      if (!touchStart && button === 0 && !ctx.placing && !ctx.pickingRally) {
+      if (!touchStart && button === 0 && !ctx.placing && !ctx.tool) {
         gest = { mode: 'box' };
         showBox(x0, y0, p.x, p.y);
       } else {
@@ -330,23 +391,17 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     return !!node && (node.tagName === 'INPUT' || node.tagName === 'TEXTAREA' || node.isContentEditable);
   }
 
-  function centerOnBase() {
-    const hq = Array.from(ctx.world.buildings.values()).find((b) => b.team === ctx.localTeam && b.type === 'hq')
-      ?? Array.from(ctx.world.buildings.values()).find((b) => b.team === ctx.localTeam);
-    if (hq) ctx.renderer.centerOn({ x: hq.tx + hq.w / 2, y: hq.ty + hq.h / 2 });
-  }
-
   function onKeyDown(e: KeyboardEvent) {
     if (isTypingTarget(e.target)) return;
     const k = e.key.toLowerCase();
     if (!e.repeat) {
-      if (k === 'a') ctx.armAttackMove(!ctx.attackMoveArmed);
+      if (k === 'a') ctx.setTool(ctx.tool === 'attackMove' ? null : 'attackMove');
       else if (k === 's' && ctx.selection.length) ctx.queueCommand({ t: 'stop', team: ctx.localTeam, ids: [...ctx.selection] });
-      else if (k === 'h') centerOnBase();
+      else if (k === 'h') ctx.centerBase();
       else if (k === ' ') { if (ctx.lastEventPos) ctx.renderer.centerOn(ctx.lastEventPos); }
       else if (k === 'escape') {
         if (ctx.placing) ctx.cancelPlacing();
-        else if (ctx.pickingRally) ctx.cancelRallyPick();
+        else if (ctx.tool) ctx.setTool(null);
         else ctx.setSelection([]);
       } else if (k === 'f10' || k === 'p') ctx.togglePause();
       else if (/^[1-9]$/.test(k)) {
@@ -399,7 +454,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     if (held.has('arrowright') || held.has('d')) dx += speed;
     if (held.has('arrowup') || held.has('w')) dy -= speed;
     if (held.has('arrowdown') || held.has('s')) dy += speed;
-    if (hover && !gest) {
+    if (hover && !gest && lastPtrType === 'mouse' && !ctx.helpOpen && ctx.started && !ctx.paused) {
       const r = canvas.getBoundingClientRect();
       if (hover.x < EDGE_PX) dx -= speed;
       else if (hover.x > r.width - EDGE_PX) dx += speed;
@@ -408,20 +463,24 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     }
     if (dx || dy) ctx.renderer.panBy(dx, dy);
 
-    canvas.classList.toggle('placing', !!ctx.placing || ctx.pickingRally);
-    if (ctx.placing && hover) {
-      const wp = ctx.renderer.pick(hover.x, hover.y).world;
-      if (wp) {
-        const half = ctx.placing === 'turret' ? 0 : 1; // cladirile 3x3 se centreaza pe cursor
-        const tx = clamp(Math.floor(wp.x) - half, 0, ctx.world.map.w - 1);
-        const ty = clamp(Math.floor(wp.y) - half, 0, ctx.world.map.h - 1);
-        ghostTile = { tx, ty };
-        const valid = ctx.sim.canPlace(ctx.world, ctx.localTeam, ctx.placing, tx, ty);
-        ctx.renderer.setGhost({ type: ctx.placing, tx, ty, valid });
+    canvas.classList.toggle('placing', !!ctx.placing || !!ctx.tool);
+    if (ctx.placing) {
+      let tile: { tx: number; ty: number } | null = ctx.placeTile;
+      if (!tile && lastPtrType === 'mouse' && hover) {
+        const wp = ctx.renderer.pick(hover.x, hover.y).world;
+        if (wp) tile = placementTile(wp, ctx.placing);
       }
-    } else if (!ctx.placing) {
-      ghostTile = null;
+      if (tile) {
+        const valid = ctx.sim.canPlace(ctx.world, ctx.localTeam, ctx.placing, tile.tx, tile.ty);
+        ctx.renderer.setGhost({ type: ctx.placing, tx: tile.tx, ty: tile.ty, valid });
+        ghostShown = true;
+      } else if (ghostShown) {
+        ctx.renderer.setGhost(null);
+        ghostShown = false;
+      }
+    } else if (ghostShown) {
       ctx.renderer.setGhost(null);
+      ghostShown = false;
     }
   }
 
