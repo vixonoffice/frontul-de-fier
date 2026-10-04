@@ -40,8 +40,8 @@ describe('performance', () => {
     const blocked = buildBlockedGrid(world);
     const team0Ids = [...world.units.values()].filter((u) => u.team === 0).map((u) => u.id);
     const team1Ids = [...world.units.values()].filter((u) => u.team === 1).map((u) => u.id);
-    issueMoveOrder(world, internal, blocked, team0Ids, world.map.w - 10, world.map.h - 10, 'attackMove');
-    issueMoveOrder(world, internal, blocked, team1Ids, 10, 10, 'attackMove');
+    issueMoveOrder(world, internal, blocked, team0Ids, world.map.starts[1].x, world.map.starts[1].y, 'attackMove');
+    issueMoveOrder(world, internal, blocked, team1Ids, world.map.starts[0].x, world.map.starts[0].y, 'attackMove');
     for (const id of [...team0Ids, ...team1Ids]) void getNav(internal, id);
 
     const TICKS = 1000;

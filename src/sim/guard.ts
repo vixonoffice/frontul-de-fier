@@ -29,7 +29,7 @@ export function updateGuards(world: World, internal: Internal, blocked: Uint8Arr
   const byTeam = new Map<Team, Unit[]>();
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id) as Unit;
-    if (u.role !== 'guard' || u.type === 'harvester' || UNITS[u.type].domain !== 'ground') continue;
+    if (u.role !== 'guard' || UNITS[u.type].cargoCap > 0 || UNITS[u.type].domain !== 'ground') continue;
     let arr = byTeam.get(u.team);
     if (!arr) { arr = []; byTeam.set(u.team, arr); }
     arr.push(u);
@@ -92,12 +92,14 @@ export function updateGuards(world: World, internal: Internal, blocked: Uint8Arr
         for (const g of cands) responders.push(g);
       }
       // cei care răspund (noi sau deja pe drum, dar inactivi) primesc attack-move spre locul alarmei
+      const go: number[] = [];
       for (const g of responders) {
         const st = internal.guardState.get(g.id);
         if (st && g.order.kind === 'attackMove') continue;
         internal.guardState.set(g.id, { x: spot.x, y: spot.y });
-        issueMoveOrder(world, internal, blocked, [g.id], spot.x, spot.y, 'attackMove');
+        go.push(g.id);
       }
+      if (go.length) issueMoveOrder(world, internal, blocked, go, spot.x, spot.y, 'attackMove'); // în formație
     } else {
       // pericolul a trecut: cei care răspundeau se întorc
       for (const g of responders) {
@@ -127,7 +129,7 @@ export function guardsOf(world: World, team: Team): EntityId[] {
   const out: EntityId[] = [];
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id) as Unit;
-    if (u.team === team && u.role === 'guard' && u.type !== 'harvester') out.push(id);
+    if (u.team === team && u.role === 'guard' && UNITS[u.type].cargoCap === 0) out.push(id);
   }
   return out;
 }

@@ -7,7 +7,7 @@ import type { Internal } from './internal';
 import { getNav } from './internal';
 import { isVisible } from './fog';
 import type { WeaponDef } from '../data/units';
-import { UNITS } from '../data/units';
+import { UNITS, VETERANCY, LOW_POWER_FACTOR } from '../data/units';
 import { findPath } from './path';
 import { isFlying } from './air';
 
@@ -95,6 +95,7 @@ function spawnProjectile(world: World, internal: Internal, source: Entity, targe
     tx: to.x, ty: to.y,
   };
   internal.projectileWeapon.set(proj.id, weapon);
+  internal.projectileSource.set(proj.id, source.id);
   world.projectiles.push(proj);
 }
 
@@ -114,19 +115,42 @@ function noteUnderAttack(world: World, internal: Internal, team: Team, pos: Vec)
   }
 }
 
-export function applyDamage(world: World, internal: Internal, target: Entity, rawDamage: number, weapon: WeaponDef): void {
+export function applyDamage(world: World, internal: Internal, target: Entity, rawDamage: number, weapon: WeaponDef, sourceId?: EntityId): void {
   const mult = weapon.vs[armorOf(target)];
-  const dmg = rawDamage * mult;
+  const src = sourceId !== undefined ? world.units.get(sourceId) : undefined;
+  const dmg = rawDamage * mult * (src ? VETERANCY.damageMult[src.rank] : 1);
   target.hp -= dmg;
   if (target.kind === 'unit') internal.lastDamageTick.set(target.id, world.tick);
   // lovitură în clădire sau recoltor: declanșează gardienii
-  if (target.kind === 'building' || target.type === 'harvester') {
+  if (target.kind === 'building' || UNITS[target.type].cargoCap > 0) {
     const hc = center(target);
     internal.lastHit.set(target.team, { x: hc.x, y: hc.y, tick: world.tick });
   }
   const c = center(target);
   if (!world.players[target.team].defeated) noteUnderAttack(world, internal, target.team, c);
-  if (target.hp <= 0) destroyEntity(world, internal, target);
+  if (target.hp <= 0) {
+    destroyEntity(world, internal, target);
+    if (sourceId !== undefined) creditKill(world, internal, sourceId);
+  }
+}
+
+/** Creditează o distrugere unității care a tras lovitura (grade: vezi etapa B). */
+export function creditKill(world: World, internal: Internal, killerId: EntityId): void {
+  const k = world.units.get(killerId);
+  if (!k) return;
+  k.kills += 1;
+  void internal;
+  // grad: la pragurile din VETERANCY.killsFor; viața maximă crește proporțional cu viața curentă
+  let rank = 0;
+  for (const t of VETERANCY.killsFor) if (k.kills >= t) rank++;
+  if (rank > k.rank) {
+    const r = Math.min(2, rank) as 1 | 2;
+    const ratio = VETERANCY.hpMult[r] / VETERANCY.hpMult[k.rank];
+    k.rank = r;
+    k.maxHp *= ratio;
+    k.hp *= ratio;
+    world.events.push({ type: 'promoted', id: k.id, team: k.team, rank: r, x: k.x, y: k.y });
+  }
 }
 
 export function destroyEntity(world: World, internal: Internal, target: Entity): void {
@@ -162,7 +186,8 @@ function aimTurret(e: Unit | Building, aimPoint: Vec, turnRate: number, dt: numb
 }
 
 function tryFireAt(world: World, internal: Internal, e: Unit | Building, target: Entity, weapon: WeaponDef, dt: number): void {
-  e.cooldown -= dt;
+  // lipsa de curent încetinește turelele (reîncărcare mai lentă)
+  e.cooldown -= e.kind === 'building' && internal.lowPower.get(e.team) ? dt * LOW_POWER_FACTOR : dt;
   const turnRate = e.kind === 'unit' ? (UNITS[e.type].turretTurnRate || UNITS[e.type].turnRate) : 4;
   const aligned = Math.abs(aimTurret(e, center(target), turnRate, dt)) < ALIGN_THRESHOLD;
   if (e.cooldown <= 0 && aligned) {
@@ -186,6 +211,14 @@ export function updateUnitCombat(
   if (!wr) return;
   const { weapon, range } = wr;
   const nav = getNav(internal, unit.id);
+
+  if (def.cargoCap > 0) {
+    // recoltor blindat: trage în inamicii din rază în timp ce lucrează, fără să urmărească pe nimeni
+    const t = findTarget(world, unit.team, { x: unit.x, y: unit.y }, range, unit.id, unitIds, buildingIds, weapon);
+    if (t) tryFireAt(world, internal, unit, t, weapon, dt);
+    else unit.cooldown = Math.max(0, unit.cooldown - dt);
+    return;
+  }
 
   if (nav.engagedTarget !== null) {
     const t = findEntity(world, nav.engagedTarget);
@@ -312,6 +345,7 @@ export function updateProjectiles(world: World, internal: Internal, dt: number):
       world.events.push({ type: 'hit', x: p.tx, y: p.ty, weapon: 'bomb' });
       applySplash(world, internal, p, sourceWeapon);
       internal.projectileWeapon.delete(p.id);
+      internal.projectileSource.delete(p.id);
       continue;
     }
     const target = findEntity(world, p.targetId);
@@ -327,9 +361,10 @@ export function updateProjectiles(world: World, internal: Internal, dt: number):
       if (sourceWeapon.splash > 0) {
         applySplash(world, internal, p, sourceWeapon);
       } else if (target && canWeaponTarget(sourceWeapon, target)) {
-        applyDamage(world, internal, target, sourceWeapon.damage, sourceWeapon);
+        applyDamage(world, internal, target, sourceWeapon.damage, sourceWeapon, internal.projectileSource.get(p.id));
       }
       internal.projectileWeapon.delete(p.id);
+      internal.projectileSource.delete(p.id);
       continue;
     }
     p.x += (dx / d) * step;
@@ -355,7 +390,7 @@ function applySplash(world: World, internal: Internal, p: Projectile, weapon: We
     if (d <= weapon.splash) {
       // bombă: daună plină aproape de centru, jumătate la margine; rest: plină doar pe ținta principală
       const isPrimary = p.kind === 'bomb' ? d <= weapon.splash * 0.5 : v.id === p.targetId;
-      applyDamage(world, internal, v, isPrimary ? weapon.damage : weapon.damage * 0.5, weapon);
+      applyDamage(world, internal, v, isPrimary ? weapon.damage : weapon.damage * 0.5, weapon, internal.projectileSource.get(p.id));
     }
   }
 }
