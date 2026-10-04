@@ -41,6 +41,7 @@ export interface Unit {
   moving: boolean;
   alt: number;                   // înălțime de zbor în tile-uri (0 = la sol); doar avioanele au > 0
   ammo: number;                  // bombe rămase (avion); 0 pentru restul
+  role: UnitRole;                // implicit 'attack'; recoltoarele îl ignoră
 }
 
 export interface Building {
@@ -90,8 +91,13 @@ export type SimEvent =
 export interface ProductionSlot<T> { type: T; progress: number; ready: boolean; paid: boolean }
 
 /** Asistentul jucătorului: trei comutatoare independente. Rulează în sim (determinist), doar pentru jucători umani. */
-export type AssistMode = 'economy' | 'defense' | 'attack';
-export interface AssistState { economy: boolean; defense: boolean; attack: boolean }
+// 'allIn': la atac pleacă toată armata, inclusiv garda (altfel garda rămâne acasă).
+export type AssistMode = 'economy' | 'defense' | 'attack' | 'allIn';
+export interface AssistState { economy: boolean; defense: boolean; attack: boolean; allIn: boolean }
+
+/** Rolul unei unități de luptă: 'attack' = forța de atac (pleacă în ofensive), 'guard' = garda bazei
+ * (stă lângă bază, merge singură unde e atacată o clădire proprie, apoi se întoarce la post). */
+export type UnitRole = 'attack' | 'guard';
 export interface Production {
   building: ProductionSlot<BuildingType> | null;
   units: ProductionSlot<UnitType>[];   // coada fabricii (vehicule), maxim MAX_QUEUE
@@ -151,7 +157,8 @@ export type Command =
   | { t: 'trainCancel'; team: Team; unit: UnitType; all?: boolean }      // all: scoate din coadă toate de acest tip
   | { t: 'assist'; team: Team; mode: AssistMode; on: boolean }           // pornește/oprește un mod al asistentului
   | { t: 'rally'; team: Team; x: number; y: number }
-  | { t: 'sell'; team: Team; id: EntityId };                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
+  | { t: 'sell'; team: Team; id: EntityId }
+  | { t: 'role'; team: Team; ids: EntityId[]; role: UnitRole };          // mută unitățile în gardă sau în forța de atac                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
 
 export interface GameSetup {
   seed: number;
