@@ -1,4 +1,5 @@
 // Implementarea RenderAPI (contract: ./api.ts). Three.js r186.
+import { UNITS } from '../data/units';
 import * as THREE from 'three';
 import { EffectComposer } from 'three/examples/jsm/postprocessing/EffectComposer.js';
 import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
@@ -471,7 +472,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         const hopper = obj.userData.hopper as THREE.Mesh | undefined;
         if (hopper) {
           const base = (obj.userData.hopperBaseY as number) ?? 0.37;
-          const fill = Math.max(0, Math.min(1, rec.carry / 300));
+          const fill = Math.max(0, Math.min(1, rec.carry / UNITS.harvester.cargoCap));
           const h = 0.08 + fill * 0.42;
           hopper.visible = fill > 0.02;
           hopper.scale.y = Math.max(0.05, h / 0.1);

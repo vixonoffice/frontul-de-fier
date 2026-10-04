@@ -66,14 +66,14 @@ describe('map generation', () => {
     }
   });
 
-  it('ore amounts fall roughly within the 300-500 per-tile spec where present', () => {
+  it('ore amounts fall roughly within the 700-1100 per-tile spec where present', () => {
     const map = generateMap({ rng: 3 }, setupFor(3));
     let oreTiles = 0;
     for (let i = 0; i < map.ore.length; i++) {
       if (map.ore[i] > 0) {
         oreTiles++;
-        expect(map.ore[i]).toBeGreaterThanOrEqual(300);
-        expect(map.ore[i]).toBeLessThanOrEqual(500);
+        expect(map.ore[i]).toBeGreaterThanOrEqual(700);
+        expect(map.ore[i]).toBeLessThanOrEqual(1100);
       }
     }
     expect(oreTiles).toBeGreaterThan(0);

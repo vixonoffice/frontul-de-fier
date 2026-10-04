@@ -8,8 +8,8 @@ import { PI, fcos, fsin } from './fmath';
 
 const START_MARGIN = 9;
 const CLEAR_RADIUS = 7;
-const ORE_MIN = 300;
-const ORE_MAX = 500;
+const ORE_MIN = 700;
+const ORE_MAX = 1100;
 
 interface Corner { x: number; y: number }
 

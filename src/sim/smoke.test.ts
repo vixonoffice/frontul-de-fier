@@ -18,7 +18,7 @@ describe('smoke', () => {
     const world = createWorld(setup2p());
     expect(world.units.size).toBe(2 * 4); // 2 tanks + 1 rocket + 1 harvester, per team
     expect(world.buildings.size).toBe(2 * 3); // hq+refinery per team, +2 turrets for AI team
-    expect(world.players[0].credits).toBe(3000);
+    expect(world.players[0].credits).toBe(5000);
   });
 
   it('steps 100 ticks without throwing', () => {

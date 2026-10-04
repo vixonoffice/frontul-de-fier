@@ -360,7 +360,7 @@ export function buildTerrain(map: MapData): TerrainBuild {
       for (const tile of oreTiles) {
         const amount = ore[tile.idx];
         if (amount <= 0) continue;
-        const frac = Math.min(1, amount / 400);
+        const frac = Math.min(1, amount / 900);
         const count = Math.max(2, Math.round(frac * tile.count));
         for (let i = 0; i < count; i++) {
           const variant = i % oreMeshes.length;

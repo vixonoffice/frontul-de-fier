@@ -58,12 +58,12 @@ describe('stage 2: producție', () => {
     step(world, [{ t: 'train', team: 0, unit: 'tank' }, { t: 'train', team: 0, unit: 'soldier' }]);
     expect(world.players[0].production.units.length).toBe(1);
     expect(world.players[0].production.infantry.length).toBe(1);
-    stepN(world, 20);
+    stepN(world, 10);
     expect(world.players[0].production.units[0].progress).toBeGreaterThan(0);
     expect(world.players[0].production.infantry[0].progress).toBeGreaterThan(0);
 
     const events: SimEvent[] = [];
-    stepN(world, 60, events); // soldatul (3 s) iese înaintea tancului (6 s)
+    stepN(world, 30, events); // soldatul (1,5 s) iese înaintea tancului (3 s)
     const readyTypes = events.filter((e) => e.type === 'unitReady').map((e) => (e as { unit: string }).unit);
     expect(readyTypes).toContain('soldier');
     expect(readyTypes).not.toContain('tank');

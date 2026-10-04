@@ -27,9 +27,9 @@ interface AIParams {
 }
 
 const AI_PARAMS: Record<Difficulty, AIParams> = {
-  easy: { income: 4, decisionInterval: 3.0, firstWave: 260, waveInterval: 100, waveBaseSize: 2, waveGrowth: 1, turretTarget: 2, scoutInterval: 60, defendRadius: 13, infantryQueue: 1 },
-  normal: { income: 7, decisionInterval: 2.0, firstWave: 150, waveInterval: 75, waveBaseSize: 3, waveGrowth: 1, turretTarget: 3, scoutInterval: 45, defendRadius: 12, infantryQueue: 2 },
-  hard: { income: 11, decisionInterval: 1.2, firstWave: 110, waveInterval: 60, waveBaseSize: 4, waveGrowth: 2, turretTarget: 4, scoutInterval: 30, defendRadius: 11, infantryQueue: 3 },
+  easy: { income: 4, decisionInterval: 3.0, firstWave: 200, waveInterval: 75, waveBaseSize: 2, waveGrowth: 1, turretTarget: 2, scoutInterval: 60, defendRadius: 13, infantryQueue: 1 },
+  normal: { income: 7, decisionInterval: 2.0, firstWave: 110, waveInterval: 55, waveBaseSize: 3, waveGrowth: 1, turretTarget: 3, scoutInterval: 45, defendRadius: 12, infantryQueue: 2 },
+  hard: { income: 11, decisionInterval: 1.2, firstWave: 80, waveInterval: 45, waveBaseSize: 4, waveGrowth: 2, turretTarget: 4, scoutInterval: 30, defendRadius: 11, infantryQueue: 3 },
 };
 
 function ownBuildings(world: World, team: Team): Building[] {

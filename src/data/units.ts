@@ -44,7 +44,7 @@ export interface UnitDef {
 // --- avioane ---
 export const AIR_ALTITUDE = 3.2;        // tile-uri deasupra solului, în zbor
 export const BOMBER_PAYLOAD = 4;        // bombe per ieșire
-export const BOMBER_RELOAD_TIME = 14;   // secunde la sol, pe aerodrom, până e gata din nou
+export const BOMBER_RELOAD_TIME = 8;   // secunde la sol, pe aerodrom, până e gata din nou
 export const BOMBERS_PER_AIRFIELD = 3;
 
 const CANNON: WeaponDef = {
@@ -90,45 +90,45 @@ const BOMB: WeaponDef = {
 export const UNITS: Record<UnitType, UnitDef> = {
   tank: {
     type: 'tank', name: 'Tanc',
-    hp: 320, speed: 1.7, turnRate: 5, turretTurnRate: 4,
+    hp: 320, speed: 2.2, turnRate: 5, turretTurnRate: 4,
     sight: 6, radius: 0.375,
-    cost: 600, buildTime: 6,
+    cost: 600, buildTime: 3,
     armor: 'heavyVehicle', weapon: CANNON,
     cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
     producedAt: 'factory', domain: 'ground', desc: 'Blindat, bun la toate. Nu poate trage în avioane.',
   },
   rocket: {
     type: 'rocket', name: 'Lansator',
-    hp: 170, speed: 1.3, turnRate: 4.5, turretTurnRate: 3.5,
+    hp: 170, speed: 1.8, turnRate: 4.5, turretTurnRate: 3.5,
     sight: 8, radius: 0.34375,
-    cost: 800, buildTime: 8,
+    cost: 800, buildTime: 4,
     armor: 'lightVehicle', weapon: ROCKET,
     cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
     producedAt: 'factory', domain: 'ground', desc: 'Trage de departe, bun contra clădirilor și avioanelor. Fragil.',
   },
   harvester: {
     type: 'harvester', name: 'Recoltor',
-    hp: 700, speed: 1.1, turnRate: 3.5, turretTurnRate: 0,
+    hp: 700, speed: 1.7, turnRate: 3.5, turretTurnRate: 0,
     sight: 4, radius: 0.4375,
-    cost: 900, buildTime: 9,
+    cost: 900, buildTime: 4,
     armor: 'heavyVehicle', weapon: null,
-    cargoCap: 300, mineAmount: 25, mineTime: 0.45, unloadAmount: 50, unloadTime: 0.2,
+    cargoCap: 500, mineAmount: 50, mineTime: 0.3, unloadAmount: 125, unloadTime: 0.1,
     producedAt: 'factory', domain: 'ground', desc: 'Adună minereu și îl duce la rafinărie. Așa faci bani.',
   },
   soldier: {
     type: 'soldier', name: 'Soldat',
-    hp: 60, speed: 1.25, turnRate: 9, turretTurnRate: 0,
+    hp: 60, speed: 1.6, turnRate: 9, turretTurnRate: 0,
     sight: 5, radius: 0.2,
-    cost: 150, buildTime: 3,
+    cost: 150, buildTime: 1.5,
     armor: 'infantry', weapon: RIFLE,
     cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
     producedAt: 'barracks', domain: 'ground', desc: 'Ieftin și rapid de făcut. Bun contra altor soldați, slab contra tancurilor.',
   },
   bazooka: {
     type: 'bazooka', name: 'Antitanc',
-    hp: 75, speed: 1.1, turnRate: 9, turretTurnRate: 0,
+    hp: 75, speed: 1.5, turnRate: 9, turretTurnRate: 0,
     sight: 6, radius: 0.2,
-    cost: 300, buildTime: 5,
+    cost: 300, buildTime: 2.5,
     armor: 'infantry', weapon: BAZOOKA,
     cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
     producedAt: 'barracks', domain: 'ground', desc: 'Soldat cu lansator. Distruge tancuri și dă jos avioane.',
@@ -137,11 +137,11 @@ export const UNITS: Record<UnitType, UnitDef> = {
     type: 'bomber', name: 'Bombardier',
     hp: 260, speed: 5.5, turnRate: 2.4, turretTurnRate: 0,
     sight: 7, radius: 0.5,
-    cost: 1400, buildTime: 14,
+    cost: 1400, buildTime: 7,
     armor: 'aircraft', weapon: BOMB,
     cargoCap: 0, mineAmount: 0, mineTime: 1, unloadAmount: 0, unloadTime: 1,
     producedAt: 'airfield', domain: 'air', desc: 'Zboară peste orice, lasă 4 bombe pe țintă și se întoarce la aerodrom să reîncarce.',
   },
 };
 
-export const STARTING_CREDITS = 3000;
+export const STARTING_CREDITS = 5000;
