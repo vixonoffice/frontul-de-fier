@@ -59,8 +59,15 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   const initialH = canvas.clientHeight || canvas.height || 600;
   const narrow = initialW < 820;
   const highDpr = (window.devicePixelRatio || 1) > 1.5;
-  const bloomEnabled = !(narrow && highDpr);
-  const dprCap = narrow ? 1.5 : 2;
+  const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+  const bloomEnabled = !(narrow && highDpr) && !coarse;
+  let dprCap = coarse ? 1.5 : 2;
+  // treapta de calitate: 0 = tot, 1 = fara bloom + umbre mici, 2 = fara umbre, rezolutie redusa
+  let quality = coarse ? 1 : 0;
+  let frameAvg = 1 / 60;
+  let slowFrames = 0;
+  let lastDpr = window.devicePixelRatio || 1;
+  let lastW = initialW, lastH = initialH;
 
   const renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
   renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, dprCap));
@@ -82,7 +89,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   const sunDir = new THREE.Vector3(-0.45, 1, 0.35).normalize();
   const sun = new THREE.DirectionalLight(0xffe4bc, 2.7);
   sun.castShadow = true;
-  sun.shadow.mapSize.set(narrow ? 1024 : 2048, narrow ? 1024 : 2048);
+  sun.shadow.mapSize.set(narrow || coarse ? 1024 : 2048, narrow || coarse ? 1024 : 2048);
   sun.shadow.bias = -0.0008;
   sun.shadow.normalBias = 0.02;
   const sunTarget = new THREE.Object3D();
@@ -366,8 +373,35 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     cam.updateProjectionMatrix();
   }
 
+  function applyQuality(): void {
+    if (quality >= 2) {
+      sun.castShadow = false;
+      renderer.shadowMap.enabled = false;
+      scene.traverse((o) => { if (o instanceof THREE.Mesh && o.material) (o.material as THREE.Material).needsUpdate = true; });
+      dprCap = 1;
+    } else if (quality === 1) {
+      dprCap = Math.min(dprCap, 1.5);
+    }
+    renderer.setPixelRatio(Math.min(lastDpr, dprCap));
+    renderer.setSize(lastW, lastH, false);
+    composer?.setSize(lastW, lastH);
+  }
+
+  function watchFrameRate(dtSeconds: number): void {
+    if (quality >= 2 || dtSeconds <= 0 || dtSeconds >= 0.1) return;
+    frameAvg += (dtSeconds - frameAvg) * 0.05;
+    slowFrames = frameAvg > 1 / 40 ? slowFrames + 1 : Math.max(0, slowFrames - 2);
+    if (slowFrames > 90) {
+      quality += 1;
+      slowFrames = 0;
+      frameAvg = 1 / 60;
+      applyQuality();
+    }
+  }
+
   function render(world: World, alpha: number, dtSeconds: number): void {
     ensureWorldSetup(world);
+    watchFrameRate(dtSeconds);
     clock += dtSeconds;
     if (world.tick !== lastTick) {
       syncEntities(world);
@@ -386,11 +420,12 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     camera.camera.position.add(shakeOffset);
     ui.sync(buildSyncEntries(), clock);
 
-    if (composer) composer.render();
+    if (composer && quality === 0) composer.render();
     else renderer.render(scene, camera.camera);
   }
 
   function resize(width: number, height: number, dpr: number): void {
+    lastDpr = dpr; lastW = width; lastH = height;
     renderer.setPixelRatio(Math.min(dpr, dprCap));
     renderer.setSize(width, height, false);
     camera.resize(width, height);
