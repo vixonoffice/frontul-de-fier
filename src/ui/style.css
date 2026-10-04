@@ -614,3 +614,18 @@ svg.ic .cutf { fill: var(--cut); stroke: none; }
 @media (max-height: 500px) { .screen-card.setup h1 { font-size: 30px; } .seg-btn { min-height: 44px; } }
 
 .seg.wrap .seg-btn { font-size: 15px; letter-spacing: .02em; }
+
+
+/* ---------- runda 6: secțiuni în tavă, radar lipsă ---------- */
+.tray-sec {
+  flex: 0 0 auto; display: grid; place-items: center; width: 22px; align-self: stretch;
+  writing-mode: vertical-rl; transform: rotate(180deg);
+  font: 800 13px/1 var(--display); letter-spacing: .14em; text-transform: uppercase; color: var(--olive-l);
+  border-left: 3px solid #4a5238; margin-left: 4px; padding-left: 2px;
+}
+.tray-sec:first-child { margin-left: 0; }
+.mm-nr { position: absolute; inset: 0; display: grid; place-items: center; background: rgba(0,0,0,.25); pointer-events: none; z-index: 3; }
+.mm-nr span { font: 800 13px var(--display); letter-spacing: .08em; text-transform: uppercase; color: #ffb59f; background: rgba(0,0,0,.75); padding: 3px 7px; border-radius: 4px; }
+@media (max-height: 500px), (min-width: 701px) and (min-height: 501px) {
+  .tray-sec { writing-mode: horizontal-tb; transform: none; width: auto; display: block; border-left: 0; border-bottom: 2px solid #4a5238; margin: 4px 0 -4px; padding: 0 0 2px; letter-spacing: .1em; }
+}

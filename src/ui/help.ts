@@ -24,6 +24,8 @@ const TOUCH_HELP: [string, string][] = [
   ['Curent', 'clădirile consumă curent, iar Centrala îl produce. Când consumul e mai mare decât producția (contorul de sus se face roșu), producția și turelele merg la jumătate. Atinge contorul ca să afli mai multe.'],
   ['Reparații și grade', '„Repară” pe o clădire selectată o repară cu bani, pe măsură ce își recapătă viața. Unitățile care distrug destule ținte devin Veteran și apoi Elită: mai puternice și mai rezistente.'],
   ['Perimetrul asistentului', 'asistentul își alege singur locul pentru clădiri, în jurul bazei: rafinării și producție în spate, turele spre margine. Poți oricând să mai pui tu clădiri.'],
+  ['Radar', 'fără un Radar cu curent, miniharta arată doar static și nu mai poți naviga pe ea. Construiește-l din Clădiri, secțiunea Bază.'],
+  ['Ziduri', 'după un zid, următorul începe singur. Atinge sau trage degetul pe hartă ca să-ți pictezi linia de ziduri (câte unul pe fiecare pătrat, când e gata). „Anulează” oprește lanțul.'],
   ['Cozi lungi', 'în tava unei clădiri de producție, butonul ×1 / ×5 / ×25 spune câte pui la coadă la o atingere. Poți pune până la 99 în coadă. Plătești fiecare unitate abia când îi vine rândul. „x” scoate una; ține apăsat pe „x” ca să le scoți pe toate.'],
   ['Vinde', 'selectează o clădire, „Vinde” apoi încă o atingere pentru confirmare. Primești jumătate din cost.'],
 ];

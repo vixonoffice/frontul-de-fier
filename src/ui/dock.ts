@@ -6,7 +6,7 @@ import { el } from './dom';
 import { iconSvg } from './icons';
 import { BUILDINGS } from '../data/buildings';
 import { UNITS } from '../data/units';
-import { BUILD_LIST, UNIT_GROUPS, PRODUCERS, QUEUE_KEY, QUEUE_MAX, nameOf, shortName, isUnitType, descOf, costOf, timeOf } from './buildData';
+import { BUILD_LIST, BUILD_SECTIONS, UNIT_GROUPS, PRODUCERS, QUEUE_KEY, QUEUE_MAX, nameOf, shortName, isUnitType, descOf, costOf, timeOf } from './buildData';
 import type { AssistMode, BuildingType, Player, ProductionSlot, UnitType } from '../sim/types';
 
 type TileType = BuildingType | UnitType;
@@ -62,8 +62,9 @@ export function initDock(ctx: UiContext): UiModule {
   function showPop(type: TileType) {
     const unit = isUnitType(type);
     const def = unit ? UNITS[type as UnitType] : BUILDINGS[type as BuildingType];
-    const need = unit ? nameOf((def as (typeof UNITS)[UnitType]).producedAt) : (def as (typeof BUILDINGS)[BuildingType]).requires;
-    const needTxt = need ? `Necesită ${nameOf(need as BuildingType)}` : 'Fără cerințe';
+    const ud = def as (typeof UNITS)[UnitType];
+    const need = unit ? [ud.producedAt, ud.requires].filter(Boolean).map((n) => nameOf(n as BuildingType)).join(' + ') : (def as (typeof BUILDINGS)[BuildingType]).requires ? nameOf((def as (typeof BUILDINGS)[BuildingType]).requires as BuildingType) : '';
+    const needTxt = need ? `Necesită ${need}` : 'Fără cerințe';
     pop.innerHTML = `<div class="pop-head">${iconSvg(type)}<b>${nameOf(type)}</b><span class="tabular">${costOf(type)} credite · ${timeOf(type)} s</span></div><p>${descOf(type)}</p><p class="pop-need">${needTxt}</p>`;
     if (unit && queuedCount(type as UnitType) > 0) {
       const rm = el('button', { className: 'pop-rm', text: `Scoate toate din coadă (${queuedCount(type as UnitType)})`, attrs: { type: 'button' }, parent: pop });
@@ -262,8 +263,12 @@ export function initDock(ctx: UiContext): UiModule {
   }
 
   // --- clădiri ---
+  for (const sec of BUILD_SECTIONS) el('span', { className: 'tray-sec', text: sec.label, attrs: { 'data-sec': sec.label }, parent: grids.get('buildings')! });
+  // secțiunile se mută în ordine: eticheta, apoi pătratele ei
   for (const type of BUILD_LIST) {
+    const secIdx = BUILD_SECTIONS.findIndex((x) => x.items.includes(type));
     const t = makeTile(grids.get('buildings')!, type);
+    if (BUILD_SECTIONS[secIdx].items[0] === type) grids.get('buildings')!.insertBefore(grids.get('buildings')!.querySelector(`.tray-sec[data-sec="${BUILD_SECTIONS[secIdx].label}"]`)!, t.root);
     wire(
       t,
       () => {
@@ -381,7 +386,10 @@ export function initDock(ctx: UiContext): UiModule {
 
     // tava sau tabul dispar dacă n-au sens
     if (ctx.trayTab && !tabVisible(ctx.trayTab, prod)) ctx.closeTray();
-    if (ctx.placing && !(slot && slot.ready && slot.type === ctx.placing)) ctx.cancelPlacing();
+    // zidurile se pun în lanț: rămâi în plasare cât timp sim-ul tot construiește segmente
+    if (ctx.placing === 'wall') {
+      if (!(slot && slot.type === 'wall')) ctx.cancelPlacing();
+    } else if (ctx.placing && !(slot && slot.ready && slot.type === ctx.placing)) ctx.cancelPlacing();
     if (!ctx.started || ctx.gameOver) ctx.closeTray();
 
     if (!!ctx.trayTab !== wasTrayOpen) {
@@ -490,6 +498,7 @@ export function initDock(ctx: UiContext): UiModule {
         const waiting = isHead && head.paid === false && head.progress === 0;
         let blocked: string | null = null;
         if (count(def.producedAt) === 0) blocked = `Necesită ${nameOf(def.producedAt)}`;
+        else if (def.requires && count(def.requires) === 0) blocked = `Necesită ${nameOf(def.requires)}`;
         else if (q.length >= QUEUE_MAX) blocked = `Coada e plină (${QUEUE_MAX})`;
         // banii nu mai blochează: unitățile din coadă se plătesc abia când le vine rândul
         t.root.classList.toggle('wait', waiting);

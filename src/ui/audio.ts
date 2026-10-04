@@ -188,6 +188,8 @@ export function initAudio(ctx: UiContext): UiModule {
       case 'open': flat('misc', 0.5, (o) => { noiseB(o, 0.5, 0.12, 500, 2400, 1.2, 'bandpass'); toneB(o, 0.2, 0.08, 400, 700, 'triangle'); }, 0.2); break;
       case 'close': flat('misc', 0.5, (o) => { noiseB(o, 0.5, 0.1, 2200, 400, 1.2, 'bandpass'); toneB(o, 0.2, 0.08, 600, 330, 'triangle'); }, 0.2); break;
       case 'on': flat('misc', 0.6, (o) => { toneB(o, 0.5, 0.06, 600, 600, 'square'); toneB(o, 0.5, 0.09, 900, 900, 'square', 0.06); }, 0.2); break;
+      case 'radarOn': flat('misc', 0.6, (o) => { toneB(o, 0.4, 0.5, 300, 1500, 'sine'); toneB(o, 0.35, 0.08, 1500, 1500, 'triangle', 0.5); noiseB(o, 0.2, 0.3, 4000, 2500, 1, 'highpass'); }, 0.7); break;
+      case 'radarOff': flat('misc', 0.6, (o) => { toneB(o, 0.4, 0.5, 1400, 200, 'sine'); noiseB(o, 0.35, 0.5, 3000, 500, 0.8, 'lowpass'); }, 0.7); break;
       case 'off': flat('misc', 0.6, (o) => { toneB(o, 0.5, 0.06, 900, 900, 'square'); toneB(o, 0.5, 0.09, 520, 520, 'square', 0.06); }, 0.2); break;
     }
   }
@@ -290,7 +292,25 @@ export function initAudio(ctx: UiContext): UiModule {
       case 'fire': {
         const w = where(e.x, e.y);
         switch (e.weapon) {
-          case 'shell': voice('cannon', w.pan, w.vol * 0.9, (o) => { noiseB(o, 0.7, 0.18, 1800, 350, 0.8, 'lowpass'); toneB(o, 0.7, 0.2, 150, 40); noiseB(o, 0.25, 0.04, 4000, 2500, 1, 'highpass'); }, 0.3); break;
+          case 'shell': {
+            const heavy = ctx.world.units.get(e.sourceId)?.type === 'heavyTank';
+            voice('cannon', w.pan, w.vol * (heavy ? 1 : 0.9), (o) => {
+              const shot = (d: number) => { noiseB(o, 0.7, 0.18, 1800, 350, 0.8, 'lowpass', d); toneB(o, heavy ? 0.9 : 0.7, 0.2, heavy ? 120 : 150, heavy ? 32 : 40, 'sine', d); noiseB(o, 0.25, 0.04, 4000, 2500, 1, 'highpass', d); };
+              shot(0);
+              if (heavy) shot(0.11); // două țevi, două bubuituri
+            }, heavy ? 0.5 : 0.3);
+            break;
+          }
+          case 'tesla': voice('rocket', w.pan, w.vol, (o) => {
+            toneB(o, 0.4, 0.4, 180, 1800, 'sawtooth'); // încărcare
+            noiseB(o, 0.9, 0.3, 6000, 1500, 0.7, 'highpass', 0.4); // trosnet
+            toneB(o, 0.6, 0.22, 2400, 300, 'square', 0.4);
+            toneB(o, 0.4, 0.15, 90, 40, 'sine', 0.4);
+          }, 0.9); break;
+          case 'artillery': voice('bomb', w.pan, w.vol, (o) => {
+            noiseB(o, 0.9, 0.35, 1400, 150, 0.7, 'lowpass'); toneB(o, 0.9, 0.35, 85, 26); // detunătura
+            toneB(o, 0.35, 1.3, 1300, 220, 'sine', 0.15); // șuierat lung
+          }, 1.6); break;
           case 'rocket': voice('rocket', w.pan, w.vol * 0.8, (o) => { noiseB(o, 0.7, 0.5, 3000, 700, 1.4, 'bandpass'); toneB(o, 0.25, 0.45, 600, 180, 'sawtooth'); }, 0.55); break;
           case 'bullet': voice('rifle', w.pan, w.vol * 0.55, (o) => { for (let i = 0; i < 3; i++) noiseB(o, 0.5, 0.035, 4200, 1800, 1.2, 'highpass', i * 0.045); }, 0.2); break;
           case 'bomb': voice('bomb', w.pan, w.vol * 0.7, (o) => { toneB(o, 0.5, 0.8, 1800, 260, 'sine'); toneB(o, 0.2, 0.8, 1795, 258, 'sine'); }, 0.9); break;
@@ -303,6 +323,8 @@ export function initAudio(ctx: UiContext): UiModule {
           case 'bullet': voice('hit', w.pan, w.vol * 0.35, (o) => noiseB(o, 0.5, 0.04, 3000, 1500, 1, 'bandpass'), 0.1); break;
           case 'shell': voice('hit', w.pan, w.vol * 0.7, (o) => { noiseB(o, 0.7, 0.22, 900, 200, 0.7, 'lowpass'); toneB(o, 0.5, 0.15, 120, 40); }, 0.3); break;
           case 'rocket': voice('hit', w.pan, w.vol * 0.8, (o) => { noiseB(o, 0.8, 0.3, 1200, 150, 0.7, 'lowpass'); toneB(o, 0.6, 0.25, 100, 35); }, 0.4); break;
+          case 'tesla': voice('hit', w.pan, w.vol * 0.9, (o) => { noiseB(o, 0.9, 0.25, 5000, 800, 0.8, 'highpass'); toneB(o, 0.5, 0.2, 1800, 200, 'square'); }, 0.3); break;
+          case 'artillery': voice('boom', w.pan, Math.max(0.35, w.vol), (o) => { noiseB(o, 1, 1.2, 600, 50, 0.6, 'lowpass', 0.12); toneB(o, 1, 0.9, 62, 20, 'sine', 0.12); noiseB(o, 0.4, 0.5, 2000, 200, 0.7, 'bandpass', 0.15); }, 1.5); break;
           case 'bomb': voice('boom', w.pan, w.vol, (o) => { noiseB(o, 1, 0.9, 800, 70, 0.6, 'lowpass'); toneB(o, 0.9, 0.7, 75, 24); noiseB(o, 0.5, 0.4, 2600, 400, 0.8, 'bandpass', 0.03); }, 1.1); break;
         }
         break;
@@ -334,7 +356,9 @@ export function initAudio(ctx: UiContext): UiModule {
         if (e.team === ctx.localTeam) flat('misc', 0.7, (o) => { [520, 660, 880].forEach((f, i) => toneB(o, 0.5, i === 2 ? 0.2 : 0.1, f, f, 'triangle', i * 0.1)); }, 0.5);
         break;
       case 'buildingPlaced':
-        if (e.team === ctx.localTeam) {
+        if (e.team === ctx.localTeam && e.building === 'wall') {
+          flat('misc', 0.6, (o) => { noiseB(o, 0.8, 0.1, 400, 120, 0.7, 'lowpass'); toneB(o, 0.6, 0.1, 95, 55); }, 0.2); // pufnet de beton
+        } else if (e.team === ctx.localTeam) {
           flat('misc', 0.9, (o) => { noiseB(o, 0.9, 0.25, 500, 100, 0.7, 'lowpass'); toneB(o, 0.9, 0.2, 110, 45); toneB(o, 0.3, 0.12, 900, 500, 'square', 0.05); noiseB(o, 0.3, 0.1, 1800, 900, 3, 'bandpass', 0.08); }, 0.4);
           haptic('tick');
         }
@@ -376,9 +400,10 @@ export function initAudio(ctx: UiContext): UiModule {
         else flat('misc', 0.9, (o) => { [392, 330, 262, 196].forEach((f, i) => toneB(o, 0.5, 0.4, f, f * 0.97, 'sawtooth', i * 0.2)); }, 1.4);
         break;
     }
-    if (e.type === 'fire') {
+    if (e.type === 'fire' || e.type === 'hit') {
       const w = where(e.x, e.y);
-      if (w.vol > 0.25) tenseScore += 1;
+      const heavy = e.weapon === 'tesla' || e.weapon === 'artillery';
+      if (w.vol > 0.25) tenseScore += heavy ? 2.5 : e.type === 'fire' ? 1 : 0;
     }
   }
 

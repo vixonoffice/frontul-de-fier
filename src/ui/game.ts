@@ -139,6 +139,18 @@ export function startGame(opts: StartGameOptions): GameHandle {
     tryPlaceAt(tx, ty) {
       const type = ctx.placing;
       if (!type) return false;
+      if (type === 'wall') {
+        // lanț de ziduri: rămâi în plasare; se pune doar când următorul segment e gata
+        const slot = world.players.find((p) => p.team === localTeam)?.production.building;
+        if (!slot || slot.type !== 'wall' || !slot.ready) return false;
+        if (sim.canPlace(world, localTeam, 'wall', tx, ty)) {
+          ctx.queueCommand({ t: 'buildPlace', team: localTeam, tx, ty });
+          return true;
+        }
+        ctx.sfx('error');
+        ctx.ghostFlash = { tx, ty, until: performance.now() + 500 };
+        return false;
+      }
       if (sim.canPlace(world, localTeam, type, tx, ty)) {
         ctx.queueCommand({ t: 'buildPlace', team: localTeam, tx, ty });
         ctx.cancelPlacing();

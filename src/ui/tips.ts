@@ -121,6 +121,12 @@ export function initTips(ctx: UiContext): UiModule {
       target: '#tb-power',
     },
     {
+      id: 'lab',
+      text: 'Laboratorul deblochează Tancul greu, Artileria și Turnul Tesla.',
+      ready: () => countOf('lab') > 0,
+      target: '#dk-buildings',
+    },
+    {
       id: 'harvesters',
       text: 'Recoltoare degeaba? Selectează-le, „Adună minereu”, atinge aurul.',
       ready: () => seen.has('assist') && ownUnits((t) => t === 'harvester').length > 0,

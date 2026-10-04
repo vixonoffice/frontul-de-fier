@@ -16,7 +16,7 @@ export type ToastKind = 'info' | 'bad';
 /** Unealta armată: următoarea atingere pe hartă execută ordinul, apoi unealta se stinge. */
 export type Tool = 'attackMove' | 'harvest' | 'bomb' | 'rally' | null;
 export type BuildTab = 'buildings' | ProducerType | 'assist' | 'army';
-export type SfxName = 'click' | 'error' | 'ok' | 'cancel' | 'open' | 'close' | 'on' | 'off';
+export type SfxName = 'click' | 'error' | 'ok' | 'cancel' | 'open' | 'close' | 'on' | 'off' | 'radarOn' | 'radarOff';
 export type AckKind = 'move' | 'attack' | 'harvest' | 'bomb' | 'guard';
 export type RestartMode = 'new' | 'same' | 'setup';
 
