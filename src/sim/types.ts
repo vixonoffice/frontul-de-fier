@@ -169,9 +169,14 @@ export type Command =
   | { t: 'role'; team: Team; ids: EntityId[]; role: UnitRole }
   | { t: 'repair'; team: Team; id: EntityId; on: boolean };              // pornește/oprește repararea unei clădiri proprii          // mută unitățile în gardă sau în forța de atac                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
 
+/** Tipul hărții: câmpie deschisă, trecători printre stânci, lacuri, insule legate de poduri de pământ, sau la întâmplare. */
+export type MapStyle = 'open' | 'passes' | 'lakes' | 'islands' | 'random';
+
 export interface GameSetup {
   seed: number;
   mapSize: { w: number; h: number };
+  mapStyle?: MapStyle;            // implicit 'random'
+  // 2-4 jucători, fiecare pentru el. Pozițiile de start se trag la întâmplare din seed (nu mai e mereu același colț).
   players: { team: Team; isAI: boolean; difficulty: Difficulty }[];
 }
 
