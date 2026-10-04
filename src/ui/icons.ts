@@ -24,6 +24,7 @@ const ICONS: Record<string, string> = {
   airfield: W(`<rect x="2" y="28" width="44" height="14" fill="currentColor"/><path d="M6 35 H12 M17 35 H23 M28 35 H34 M39 35 H44" class="cut"/><rect x="4" y="16" width="9" height="12" fill="currentColor"/><rect x="2" y="12" width="13" height="5" fill="currentColor"/><path d="M20 22 L46 22 L40 16 H33 L29 9 H25 L27 16 H20 Z" fill="currentColor"/>`),
   // ---------- interfață ----------
   assist: W(`<path d="M24 3 L30 17 L45 18.5 L34 28.5 L37 43 L24 35.5 L11 43 L14 28.5 L3 18.5 L18 17 Z" fill="currentColor"/><circle cx="24" cy="24" r="5" class="cutf"/>`),
+  shield: W(`<path d="M24 3 L42 9 V23 Q42 37 24 45 Q6 37 6 23 V9 Z" fill="currentColor"/><path d="M24 12 V36 M13 20 H35" class="cut"/>`),
   coin: W(`<circle cx="24" cy="24" r="19" fill="currentColor"/><circle cx="24" cy="24" r="13" class="cut"/><path d="M24 14 V34 M19 19 Q19 16 24 16 Q29 16 29 20 Q29 24 24 24 Q19 24 19 28 Q19 32 24 32 Q29 32 29 29" class="cut"/>`),
   ore: W(`<path d="M24 3 L40 14 L35 40 L13 40 L8 14 Z" fill="currentColor"/><path d="M24 3 L24 40 M8 14 L40 14 M13 40 L24 24 L35 40" class="cut"/>`),
   army: W(`<circle cx="15" cy="13" r="6" fill="currentColor"/><circle cx="33" cy="13" r="6" fill="currentColor"/><path d="M3 38 Q3 22 15 22 Q27 22 27 38 Z" fill="currentColor"/><path d="M21 38 Q21 22 33 22 Q45 22 45 38 Z" fill="currentColor" opacity=".8"/>`),

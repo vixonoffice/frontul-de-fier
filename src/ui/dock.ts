@@ -28,15 +28,16 @@ const TAB_LABEL: Record<BuildTab, string> = {
   factory: BUILDINGS.factory.name,
   barracks: BUILDINGS.barracks.name,
   airfield: 'Aviație',
+  army: 'Armată',
 };
-const TAB_ICON: Record<BuildTab, string> = { buildings: 'hq', factory: 'factory', barracks: 'barracks', airfield: 'airfield', assist: 'assist' };
-const TABS: BuildTab[] = ['buildings', ...PRODUCERS, 'assist'];
+const TAB_ICON: Record<BuildTab, string> = { buildings: 'hq', factory: 'factory', barracks: 'barracks', airfield: 'airfield', assist: 'assist', army: 'army' };
+const TABS: BuildTab[] = ['buildings', ...PRODUCERS, 'assist', 'army'];
 const MULS: (1 | 5 | 25)[] = [1, 5, 25];
 
 const ASSIST: { mode: AssistMode; name: string; desc: string; icon: string }[] = [
-  { mode: 'economy', name: 'Dezvoltare bază', desc: 'Construiește rafinării, fabrici și recoltoare din banii pe care îi ai', icon: 'refinery' },
-  { mode: 'defense', name: 'Apărare', desc: 'Pune turele și ține o gardă lângă bază', icon: 'turret' },
-  { mode: 'attack', name: 'Atac', desc: 'Face armată și o trimite la atac când e destulă', icon: 'target' },
+  { mode: 'economy', name: 'Dezvoltare bază', desc: 'Construiește rafinării, recoltoare și clădirile de producție.', icon: 'refinery' },
+  { mode: 'defense', name: 'Apărare', desc: 'Pune turele și face unități de gardă pentru bază.', icon: 'turret' },
+  { mode: 'attack', name: 'Atac', desc: 'Produce armată de atac. Tu o conduci.', icon: 'target' },
 ]
 const LONG_MS = 480;
 
@@ -83,7 +84,7 @@ export function initDock(ctx: UiContext): UiModule {
   const queuedCount = (type: UnitType): number => queueOf(ctx.world.players.find((p) => p.team === ctx.localTeam)!.production, UNITS[type].producedAt).filter((s) => s.type === type).length;
 
   const queueOf = (prod: Player['production'], t: BuildTab): ProductionSlot<UnitType>[] =>
-    t === 'buildings' || t === 'assist' ? [] : prod[QUEUE_KEY[t]] ?? [];
+    t === 'buildings' || t === 'assist' || t === 'army' ? [] : prod[QUEUE_KEY[t]] ?? [];
 
   function localPlayer(): Player {
     return ctx.world.players.find((p) => p.team === ctx.localTeam)!;
@@ -217,16 +218,47 @@ export function initDock(ctx: UiContext): UiModule {
   }
 
   // --- asistentul: trei comutatoare mari, independente ---
+  el('p', { className: 'anote', text: 'Asistentul îți construiește baza. Atacul îl conduci tu.', parent: grids.get('assist')! });
   const atiles = new Map<AssistMode, HTMLButtonElement>();
   for (const a of ASSIST) {
     const b = el('button', { className: 'atile', attrs: { type: 'button', role: 'switch', 'data-mode': a.mode }, parent: grids.get('assist')! }) as HTMLButtonElement;
     b.innerHTML = `<span class="a-ic">${iconSvg(a.icon)}</span><span class="a-txt"><b>${a.name}</b><span class="a-desc">${a.desc}</span></span><i class="a-state"></i>`;
     b.addEventListener('click', () => {
       ctx.sfx('click');
-      const now = !!localPlayer().assist?.[a.mode];
+      const as = localPlayer().assist;
+      const now = !!as?.[a.mode];
       ctx.queueCommand({ t: 'assist', team: ctx.localTeam, mode: a.mode, on: !now });
     });
     atiles.set(a.mode, b);
+  }
+
+  // --- armata: trei dale mari cu numărătoare vie ---
+  const ARMY: { id: 'all' | 'attack' | 'guard'; name: string; desc: string; icon: string }[] = [
+    { id: 'all', name: 'Toată armata', desc: 'Selectează toate unitățile de luptă', icon: 'army' },
+    { id: 'attack', name: 'Forța de atac', desc: 'Cele care pleacă în ofensive', icon: 'target' },
+    { id: 'guard', name: 'Garda bazei', desc: 'Apără singure baza unde e atacată', icon: 'shield' },
+  ];
+  const combat = (): import('../sim/types').Unit[] => {
+    const out = [];
+    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') out.push(u);
+    return out;
+  };
+  const armyTiles = new Map<string, HTMLButtonElement>();
+  for (const a of ARMY) {
+    const b = el('button', { className: 'atile army-tile', attrs: { type: 'button', 'data-army': a.id }, parent: grids.get('army')! }) as HTMLButtonElement;
+    b.innerHTML = `<span class="a-ic">${iconSvg(a.icon)}</span><span class="a-txt"><b>${a.name}</b><span class="a-desc">${a.desc}</span></span><i class="a-state tabular"></i>`;
+    b.addEventListener('click', () => {
+      const ids = combat().filter((u) => a.id === 'all' || (a.id === 'guard' ? u.role === 'guard' : u.role !== 'guard')).map((u) => u.id);
+      if (!ids.length) {
+        ctx.sfx('error');
+        ctx.toast(a.id === 'guard' ? 'Nu ai unități în gardă. Selectează unele și apasă „Pune în gardă”.' : 'Nu ai unități aici.', 'bad');
+        return;
+      }
+      ctx.sfx('click');
+      ctx.setSelection(ids);
+      ctx.closeTray();
+    });
+    armyTiles.set(a.id, b);
   }
 
   // --- clădiri ---
@@ -304,17 +336,13 @@ export function initDock(ctx: UiContext): UiModule {
     });
   }
   dbtns.get('assist')!.btn.insertAdjacentHTML('beforeend', '<span class="lamps"><i></i><i></i><i></i></span>');
-  addDock('army', 'army', 'Armată', () => {
-    ctx.closeTray();
-    ctx.selectArmy();
-  });
   addDock('home', 'home', 'Bază', () => {
     ctx.closeTray();
     ctx.centerBase();
   });
 
   const tabVisible = (t: BuildTab, prod: Player['production']): boolean => {
-    if (t === 'buildings' || t === 'assist') return true;
+    if (t === 'buildings' || t === 'assist' || t === 'army') return true;
     return count(t) > 0 || (prod[QUEUE_KEY[t]]?.length ?? 0) > 0;
   };
 
@@ -380,11 +408,19 @@ export function initDock(ctx: UiContext): UiModule {
           prog = slot.progress;
           ready = slot.ready;
         }
-      } else if (t !== 'assist') {
+      } else if (t !== 'assist' && t !== 'army') {
         const q = queueOf(prod, t);
         n = q.length;
         prog = q[0]?.progress ?? 0;
         waiting = n > 0 && q[0].paid === false && q[0].progress === 0;
+      }
+      if (t === 'army') {
+        const n = combat().length;
+        const bt = n ? String(n) : '';
+        if (d.badge.textContent !== bt) d.badge.textContent = bt;
+        d.badge.style.display = bt ? '' : 'none';
+        d.badge.classList.add('plain');
+        continue;
       }
       if (t === 'assist') {
         const a = player.assist;
@@ -412,13 +448,17 @@ export function initDock(ctx: UiContext): UiModule {
       const txt = on ? 'PORNIT' : 'OPRIT';
       if (st.textContent !== txt) st.textContent = txt;
     }
-    let army = 0;
-    for (const u of ctx.world.units.values()) if (u.team === ctx.localTeam && u.type !== 'harvester') army++;
-    const ad = dbtns.get('army')!;
-    const at = army ? String(army) : '';
-    if (ad.badge.textContent !== at) ad.badge.textContent = at;
-    ad.badge.style.display = at ? '' : 'none';
-    ad.badge.classList.add('plain');
+    {
+      const cs = combat();
+      const g = cs.filter((u) => u.role === 'guard').length;
+      const counts: Record<string, number> = { all: cs.length, attack: cs.length - g, guard: g };
+      for (const [id, b] of armyTiles) {
+        const st = b.querySelector('.a-state') as HTMLElement;
+        const tx = String(counts[id]);
+        if (st.textContent !== tx) st.textContent = tx;
+        b.classList.toggle('dim', counts[id] === 0);
+      }
+    }
 
     // --- pătratele ---
     for (const t of tiles) {

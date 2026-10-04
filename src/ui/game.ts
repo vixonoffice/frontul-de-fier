@@ -16,6 +16,7 @@ import { initScreens } from './screens';
 import { initToasts } from './toasts';
 import { initAudio } from './audio';
 import { initTips } from './tips';
+import { initGuardMarks } from './guardMarks';
 import { initHelp } from './help';
 
 export interface GameHandle {
@@ -222,6 +223,7 @@ export function startGame(opts: StartGameOptions): GameHandle {
     initQuickBar(ctx),
     initCommandBar(ctx),
     initDock(ctx),
+    initGuardMarks(ctx),
     initInput(ctx, canvas),
     initHelp(ctx),
     initTips(ctx),

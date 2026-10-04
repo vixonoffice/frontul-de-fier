@@ -369,10 +369,15 @@ svg.ic .cutf { fill: var(--cut); stroke: none; }
 
 /* ---------- asistent, cozi lungi ---------- */
 .lamps { position: absolute; top: 4px; right: 3px; display: flex; gap: 2px; }
-.lamps i { width: 7px; height: 7px; border-radius: 50%; background: #14160f; border: 1px solid #000; }
+.lamps i { width: 6px; height: 6px; border-radius: 50%; background: #14160f; border: 1px solid #000; }
 .a-eco .lamps i:nth-child(1) { background: #8fd96b; box-shadow: 0 0 6px #8fd96b; }
 .a-def .lamps i:nth-child(2) { background: #5ab4ff; box-shadow: 0 0 6px #5ab4ff; }
 .a-atk .lamps i:nth-child(3) { background: #ff6a4d; box-shadow: 0 0 6px #ff6a4d; }
+.atile.dim { opacity: .5; }
+.anote { flex: 0 0 auto; width: 130px; margin: 0; align-self: center; font: 600 13px/1.25 var(--font); color: var(--amber-l); }
+.atile.army-tile .a-state { font-size: 22px; letter-spacing: 0; color: var(--amber-l); bottom: 4px; }
+.gmark { position: absolute; left: 0; top: 0; width: 16px; height: 16px; margin: -26px 0 0 -8px; color: #5ab4ff; pointer-events: none; filter: drop-shadow(0 0 2px #000); will-change: transform; }
+.gmark svg.ic { width: 16px; height: 16px; }
 .mul {
   flex: 0 0 auto; width: 64px; height: 82px; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px;
   color: var(--amber-ink); cursor: pointer; touch-action: manipulation;
@@ -387,12 +392,12 @@ svg.ic .cutf { fill: var(--cut); stroke: none; }
   background: linear-gradient(180deg, #3b4230, #272b21); border: 2px solid #0e100b; border-radius: 8px; box-shadow: 0 3px 0 #0b0c08;
 }
 .atile:active { transform: translateY(3px); box-shadow: none; }
-.a-ic { width: 36px; height: 36px; flex: 0 0 auto; color: var(--ic); display: grid; place-items: center; }
+.a-ic { width: 48px; height: 36px; align-self: flex-start; margin-top: 4px; flex: 0 0 auto; color: var(--ic); display: grid; place-items: center; }
 .a-ic svg.ic { width: 34px; height: 34px; }
 .a-txt { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
 .a-txt b { font: 800 16px/1 var(--display); letter-spacing: .04em; text-transform: uppercase; }
 .a-desc { font: 500 12px/1.15 var(--font); color: var(--mut); }
-.a-state { position: absolute; top: 4px; right: 6px; font: 800 12px/1 var(--font); font-style: normal; letter-spacing: .08em; color: var(--mut-2); }
+.a-state { position: absolute; left: 6px; bottom: 6px; width: 48px; text-align: center; font: 800 12px/1 var(--font); font-style: normal; letter-spacing: .08em; color: var(--mut-2); }
 .atile.on { border-color: var(--ok); background: linear-gradient(180deg, #3f5230, #28351f); box-shadow: 0 3px 0 #0b0c08, 0 0 12px rgba(143,217,107,.45); }
 .atile.on .a-state { color: var(--ok); }
 .atile.on .a-ic { color: var(--ok); }
@@ -557,3 +562,5 @@ svg.ic .cutf { fill: var(--cut); stroke: none; }
 @media (prefers-reduced-motion: reduce) {
   * { transition: none !important; animation: none !important; }
 }
+
+#guardMarks { position: absolute; inset: 0; pointer-events: none; z-index: 14; overflow: hidden; }

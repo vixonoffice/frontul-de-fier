@@ -109,7 +109,7 @@ export function initTips(ctx: UiContext): UiModule {
     },
     {
       id: 'assist',
-      text: 'Vrei ajutor? Asistentul din dock construiește, apără și atacă în locul tău.',
+      text: 'Vrei ajutor? Asistentul din dock îți construiește baza. Atacul îl conduci tu.',
       ready: () => seen.has('place'),
       target: '#dk-assist',
     },
@@ -133,8 +133,14 @@ export function initTips(ctx: UiContext): UiModule {
       target: '#dk-barracks',
     },
     {
+      id: 'guard',
+      text: 'Garda apără baza singură; forța de atac pleacă la luptă. „Pune în gardă” e în rândul de jos.',
+      ready: () => ownUnits((t) => t !== 'harvester').length >= 6,
+      target: '#dk-army',
+    },
+    {
       id: 'army',
-      text: 'Armată o selectează; apoi Atacă și atinge harta spre inamic.',
+      text: 'Armată: alegi toată armata sau doar atacul; apoi Atacă și atingi harta.',
       ready: () => seen.has('train') && ownUnits((t) => t !== 'harvester').length >= 2,
       done: () => did.army,
       target: '#dk-army',

@@ -60,11 +60,12 @@ export function initQuickBar(ctx: UiContext): UiModule {
       const now = performance.now();
       // nu înlocuim un mesaj important cu unul de antrenare
       if (now < assistUntil && e.action === 'train') return;
+      if (e.action === 'attack') return; // asistentul nu conduce armata
       let t = '';
-      if (e.action === 'build') t = `Asistent: construiesc ${e.what ? nameOf(e.what) : 'o clădire'}`;
-      else if (e.action === 'train') t = `Asistent: antrenez ${e.what ? nameOf(e.what) : 'unități'}`;
-      else if (e.action === 'attack') t = 'Asistent: pornesc atacul';
-      else t = 'Asistent: apăr baza';
+      const nm = e.what ? nameOf(e.what) : '';
+      if (e.action === 'build') t = `Asistent: construiesc ${nm || 'o clădire'}`;
+      else if (e.action === 'train') t = `Asistent: produc ${nm || 'unități'}`;
+      else t = nm ? `Asistent: pun ${nm}` : 'Asistent: întăresc apărarea';
       assistTxt.textContent = t;
       assistPos = Number.isFinite(e.x) && Number.isFinite(e.y) && (e.x || e.y) ? { x: e.x, y: e.y } : null;
       assistUntil = now + 4500;
