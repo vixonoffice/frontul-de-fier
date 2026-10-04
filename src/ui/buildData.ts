@@ -2,7 +2,7 @@
 // aici sunt doar listele de ordine, grupările pe tab-uri și textele de interfață.
 import type { BuildingType, ProducerType, UnitType } from '../sim/types';
 import { BUILDINGS } from '../data/buildings';
-import { UNITS } from '../data/units';
+import { UNITS, MAX_QUEUE } from '../data/units';
 
 /** Ordinea cardurilor în tab-ul de clădiri. */
 export const BUILD_LIST: BuildingType[] = ['refinery', 'factory', 'barracks', 'turret', 'rocketTurret', 'airfield'];
@@ -18,7 +18,7 @@ export const PRODUCERS: ProducerType[] = ['factory', 'barracks', 'airfield'];
 /** Numele cozii din Production pentru fiecare clădire producătoare. */
 export const QUEUE_KEY = { factory: 'units', barracks: 'infantry', airfield: 'air' } as const;
 /** Lungimea maximă a unei cozi (vezi comentariul din Production). */
-export const QUEUE_MAX = 5;
+export const QUEUE_MAX = MAX_QUEUE;
 
 export function isUnitType(t: string): t is UnitType {
   return t in UNITS;

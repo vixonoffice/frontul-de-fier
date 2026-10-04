@@ -56,3 +56,12 @@ export function minimapBigPref(): boolean {
 export function setMinimapBigPref(b: boolean) {
   write(K_MAP, b ? '1' : '0');
 }
+
+const K_FEED = 'fdf.asistentMesaje';
+/** Mesajele scurte ale asistentului (implicit pornite). */
+export function assistFeedOn(): boolean {
+  return read(K_FEED) !== 'off';
+}
+export function setAssistFeed(on: boolean) {
+  write(K_FEED, on ? 'on' : 'off');
+}

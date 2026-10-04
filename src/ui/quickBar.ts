@@ -4,6 +4,8 @@ import type { UiContext, UiModule } from './context';
 import { el } from './dom';
 import { iconSvg } from './icons';
 import type { SimEvent, Vec } from '../sim/types';
+import { assistFeedOn } from './prefs';
+import { nameOf } from './buildData';
 
 const IDLE_WAIT_MS = 2500;
 const IDLE_SHOW_MS = 7000;
@@ -18,6 +20,18 @@ export function initQuickBar(ctx: UiContext): UiModule {
   const idleChip = el('button', { className: 'chip warn', attrs: { type: 'button', id: 'chipIdle' }, parent: chips }) as HTMLButtonElement;
   idleChip.innerHTML = `${iconSvg('harvester')}<span></span>`;
   const idleTxt = idleChip.querySelector('span') as HTMLElement;
+  // jurnal scurt al asistentului: un singur rând, se stinge singur, atins te duce acolo
+  const assistChip = el('button', { className: 'chip assist', attrs: { type: 'button', id: 'chipAssist' }, parent: chips }) as HTMLButtonElement;
+  assistChip.innerHTML = `${iconSvg('assist')}<span></span>`;
+  const assistTxt = assistChip.querySelector('span') as HTMLElement;
+  assistChip.style.display = 'none';
+  let assistUntil = 0;
+  let assistPos: Vec | null = null;
+  assistChip.addEventListener('click', () => {
+    ctx.sfx('click');
+    if (assistPos) ctx.renderer.centerOn(assistPos);
+    assistUntil = 0;
+  });
   attackChip.style.display = 'none';
   idleChip.style.display = 'none';
 
@@ -42,6 +56,19 @@ export function initQuickBar(ctx: UiContext): UiModule {
   });
 
   function handleEvent(e: SimEvent) {
+    if (e.type === 'assist' && e.team === ctx.localTeam && assistFeedOn()) {
+      const now = performance.now();
+      // nu înlocuim un mesaj important cu unul de antrenare
+      if (now < assistUntil && e.action === 'train') return;
+      let t = '';
+      if (e.action === 'build') t = `Asistent: construiesc ${e.what ? nameOf(e.what) : 'o clădire'}`;
+      else if (e.action === 'train') t = `Asistent: antrenez ${e.what ? nameOf(e.what) : 'unități'}`;
+      else if (e.action === 'attack') t = 'Asistent: pornesc atacul';
+      else t = 'Asistent: apăr baza';
+      assistTxt.textContent = t;
+      assistPos = Number.isFinite(e.x) && Number.isFinite(e.y) && (e.x || e.y) ? { x: e.x, y: e.y } : null;
+      assistUntil = now + 4500;
+    }
     if (e.type === 'underAttack' && e.team === ctx.localTeam) {
       attackUntil = performance.now() + ATTACK_SHOW_MS;
       attackPos = { x: e.x, y: e.y };
@@ -50,6 +77,8 @@ export function initQuickBar(ctx: UiContext): UiModule {
 
   function update() {
     const now = performance.now();
+    const showAssist = now < assistUntil;
+    if (assistChip.style.display !== (showAssist ? '' : 'none')) assistChip.style.display = showAssist ? '' : 'none';
     const showAttack = now < attackUntil && !ctx.gameOver;
     if (attackChip.style.display !== (showAttack ? '' : 'none')) attackChip.style.display = showAttack ? '' : 'none';
 

@@ -90,6 +90,7 @@ export function startGame(opts: StartGameOptions): GameHandle {
     tool: null,
     placing: null,
     trayTab: null,
+    trainCount: 1,
     minimapBig: minimapBigPref(),
     ghostFlash: null,
     selection: [],

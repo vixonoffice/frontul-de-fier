@@ -14,7 +14,7 @@ export interface GameStats {
 export type ToastKind = 'info' | 'bad';
 /** Unealta armată: următoarea atingere pe hartă execută ordinul, apoi unealta se stinge. */
 export type Tool = 'attackMove' | 'harvest' | 'bomb' | 'rally' | null;
-export type BuildTab = 'buildings' | ProducerType;
+export type BuildTab = 'buildings' | ProducerType | 'assist';
 export type SfxName = 'click' | 'error' | 'ok' | 'cancel';
 
 export interface UiContext {
@@ -40,6 +40,8 @@ export interface UiContext {
   placing: BuildingType | null;
   /** Tabul deschis în tavă (null = tava e închisă). */
   trayTab: BuildTab | null;
+  /** Multiplicatorul de antrenare (x1, x5, x25), ținut minte cât ține sesiunea. */
+  trainCount: 1 | 5 | 25;
   /** Mini-harta mărită? (se ține minte între sesiuni) */
   minimapBig: boolean;
   /** Spot respins, arătat roșu o clipă. */

@@ -56,11 +56,27 @@ export function initScreens(ctx: UiContext): UiModule {
     syncTips();
   });
 
+  const assistSwitch = el('button', { className: 'switch', attrs: { type: 'button', role: 'switch', id: 'startAssist' }, parent: startCard }) as HTMLButtonElement;
+  assistSwitch.innerHTML = '<i class="knob"></i><span>Pornește cu asistentul de dezvoltare</span><b></b>';
+  let wantAssist = false;
+  const syncAssist = () => {
+    assistSwitch.classList.toggle('on', wantAssist);
+    assistSwitch.setAttribute('aria-checked', wantAssist ? 'true' : 'false');
+    (assistSwitch.querySelector('b') as HTMLElement).textContent = wantAssist ? 'Da' : 'Nu';
+  };
+  syncAssist();
+  assistSwitch.addEventListener('click', () => {
+    ctx.sfx('click');
+    wantAssist = !wantAssist;
+    syncAssist();
+  });
+
   const startBtn = el('button', { className: 'btn-primary', attrs: { type: 'button', id: 'startBtn' }, parent: startCard }) as HTMLButtonElement;
   startBtn.innerHTML = `${iconSvg('play')}<span>Începe</span>`;
   startBtn.addEventListener('click', () => {
     ctx.sfx('ok');
     if (wantTips !== tipsEnabled()) setTipsEnabled(wantTips);
+    if (wantAssist) ctx.queueCommand({ t: 'assist', team: ctx.localTeam, mode: 'economy', on: true });
     ctx.started = true;
     startScreen.classList.remove('show');
     ctx.paused = false;

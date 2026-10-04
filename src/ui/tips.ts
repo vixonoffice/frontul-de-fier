@@ -108,9 +108,15 @@ export function initTips(ctx: UiContext): UiModule {
       target: '#dk-buildings',
     },
     {
+      id: 'assist',
+      text: 'Vrei ajutor? Asistentul din dock construiește, apără și atacă în locul tău.',
+      ready: () => seen.has('place'),
+      target: '#dk-assist',
+    },
+    {
       id: 'harvesters',
       text: 'Recoltoare degeaba? Selectează-le, „Adună minereu”, atinge aurul.',
-      ready: () => seen.has('place') && ownUnits((t) => t === 'harvester').length > 0,
+      ready: () => seen.has('assist') && ownUnits((t) => t === 'harvester').length > 0,
     },
     {
       id: 'barracks',
