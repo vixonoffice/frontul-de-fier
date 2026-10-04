@@ -5,7 +5,8 @@ import { el } from './dom';
 import { iconSvg } from './icons';
 import type { SimEvent, Vec } from '../sim/types';
 import { assistFeedOn } from './prefs';
-import { nameOf } from './buildData';
+import { nameOf, DEFENSE_BUILDINGS } from './buildData';
+import type { BuildingType } from '../sim/types';
 
 const IDLE_WAIT_MS = 2500;
 const IDLE_SHOW_MS = 7000;
@@ -63,7 +64,7 @@ export function initQuickBar(ctx: UiContext): UiModule {
       if (e.action === 'attack') return; // asistentul nu conduce armata
       let t = '';
       const nm = e.what ? nameOf(e.what) : '';
-      if (e.action === 'build') t = `Asistent: construiesc ${nm || 'o clădire'}`;
+      if (e.action === 'build') t = `Asistent: ${e.what && DEFENSE_BUILDINGS.includes(e.what as BuildingType) ? 'pun' : 'construiesc'} ${nm || 'o clădire'}`;
       else if (e.action === 'train') t = `Asistent: produc ${nm || 'unități'}`;
       else t = nm ? `Asistent: pun ${nm}` : 'Asistent: întăresc apărarea';
       assistTxt.textContent = t;

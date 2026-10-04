@@ -19,6 +19,9 @@ export function initMinimap(ctx: UiContext): UiModule {
   const fx = el('canvas', { attrs: { id: 'minimapFx' }, parent: stack });
   el('div', { className: 'mm-sweep', parent: stack });
   el('div', { className: 'mm-grid', parent: stack });
+  const noRadar = el('div', { className: 'mm-nr', parent: stack });
+  noRadar.innerHTML = '<span>Fără radar</span>';
+  noRadar.style.display = 'none';
 
   const mapW = ctx.world.map.w;
   const mapH = ctx.world.map.h;
@@ -143,7 +146,9 @@ export function initMinimap(ctx: UiContext): UiModule {
     const r = stack.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
+  const hasRadar = () => (ctx.world.players.find((p) => p.team === ctx.localTeam) as { radar?: boolean } | undefined)?.radar !== false;
   function onDown(e: PointerEvent) {
+    if (!hasRadar()) return; // fără radar harta mică nu navighează
     if (!ctx.minimapBig) {
       // radarul mic: o atingere îl mărește
       ctx.sfx('click');
@@ -165,7 +170,7 @@ export function initMinimap(ctx: UiContext): UiModule {
     ctx.renderer.centerOn(miniPxToWorld(p.x, p.y));
   }
   function onMove(e: PointerEvent) {
-    if (!dragging) return;
+    if (!dragging || !hasRadar()) return;
     const p = pointFromEvent(e);
     ctx.renderer.centerOn(miniPxToWorld(p.x, p.y));
   }
@@ -184,8 +189,41 @@ export function initMinimap(ctx: UiContext): UiModule {
     }
   }
 
+  // static pe ecran când radarul lipsește
+  const nz = document.createElement('canvas');
+  nz.width = 40;
+  nz.height = 40;
+  const nzCtx = nz.getContext('2d')!;
+  const nzImg = nzCtx.createImageData(40, 40);
+  let prevRadar = hasRadar();
+  let nzTick = 0;
+  function drawNoise() {
+    if ((nzTick++ & 1) === 0) {
+      const d = nzImg.data;
+      for (let i = 0; i < d.length; i += 4) {
+        const v = 20 + Math.random() * 90;
+        d[i] = v * 0.8; d[i + 1] = v; d[i + 2] = v * 0.85; d[i + 3] = 255;
+      }
+      nzCtx.putImageData(nzImg, 0, 0);
+      bgCtx.drawImage(nz, 0, 0, mapW, mapH);
+    }
+  }
+
   function update() {
     panel.classList.toggle('big', ctx.minimapBig);
+    const radar = hasRadar();
+    if (radar !== prevRadar && ctx.started) {
+      prevRadar = radar;
+      ctx.toast(radar ? 'Radar activ: harta mică e înapoi.' : 'Radar pierdut: harta mică nu mai merge.', radar ? 'info' : 'bad');
+      ctx.sfx(radar ? 'radarOn' : 'radarOff');
+    }
+    prevRadar = radar;
+    noRadar.style.display = radar ? 'none' : '';
+    if (!radar) {
+      drawNoise();
+      fxCtx.clearRect(0, 0, fxW, fxH);
+      return;
+    }
     clock += 1 / 60;
     if (clock - lastDraw > 0.12) {
       lastDraw = clock;

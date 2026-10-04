@@ -32,7 +32,12 @@ export function initCommandBar(ctx: UiContext): UiModule {
   cancelChip.innerHTML = `${iconSvg('cancel')}<span>Anulează</span>`;
   cancelChip.addEventListener('click', () => {
     ctx.sfx('cancel');
-    if (ctx.placing) {
+    if (ctx.placing === 'wall') {
+      // sfârșitul lanțului: se oprește construirea următorului segment, banii lui se întorc
+      ctx.queueCommand({ t: 'buildCancel', team: ctx.localTeam });
+      ctx.cancelPlacing();
+      ctx.toast('Zidul s-a oprit. Segmentul început se rambursează.');
+    } else if (ctx.placing) {
       ctx.cancelPlacing();
       ctx.toast('Clădirea rămâne gata. O pui din tava Clădiri.');
     } else ctx.setTool(null);
@@ -160,7 +165,8 @@ export function initCommandBar(ctx: UiContext): UiModule {
 
     // etichetă
     let infoHtml = '';
-    if (placing) infoHtml = `${iconSvg(ctx.placing!)}<span>${ctx.isTouch ? 'Atinge harta' : 'Click pe hartă'}: pui ${nameOf(ctx.placing!)}</span>`;
+    if (placing && ctx.placing === 'wall') infoHtml = `${iconSvg('wall')}<span>Zid: ${BUILDINGS.wall.cost} / segment</span>`;
+    else if (placing) infoHtml = `${iconSvg(ctx.placing!)}<span>${ctx.isTouch ? 'Atinge harta' : 'Click pe hartă'}: pui ${nameOf(ctx.placing!)}</span>`;
     else if (toolOn) infoHtml = `<span>${PROMPT[ctx.tool!]}</span>`;
     else if (showSel) {
       const byType = new Map<UnitType, number>();

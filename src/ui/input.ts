@@ -40,6 +40,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
   let aimTile: { tx: number; ty: number } | null = null;
   let aimStart: Pt = { x: 0, y: 0 };
   let aimDragged = false;
+  let lastWall: { tx: number; ty: number } | null = null;
   const AIM_LIFT_PX = 44; // fantoma stă puțin deasupra degetului ca să se vadă
   let longPressTimer: ReturnType<typeof setTimeout> | null = null;
   let twoFinger: { dist: number; mid: Pt; moved: boolean; startedAt: number } | null = null;
@@ -204,6 +205,14 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     if (distPt(p, aimStart) > 10) aimDragged = true;
     const wp = ctx.renderer.pick(p.x, aimDragged ? Math.max(0, p.y - AIM_LIFT_PX) : p.y).world;
     if (wp) aimTile = placementTile(wp, ctx.placing);
+    paintWall();
+  }
+  /** La ziduri: câte un segment pe fiecare tile pe care trece degetul, doar când segmentul următor e gata. */
+  function paintWall() {
+    if (ctx.placing !== 'wall' || !aimTile) return;
+    if (lastWall && lastWall.tx === aimTile.tx && lastWall.ty === aimTile.ty) return;
+    const t = aimTile;
+    if (ctx.tryPlaceAt(t.tx, t.ty)) lastWall = { ...t };
   }
 
   function handleTap(p: Pt, button: number, shift: boolean, isTouch: boolean) {
@@ -285,6 +294,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     const isTouch = e.pointerType !== 'mouse';
     if (isTouch && ctx.placing) {
       gest = { mode: 'aim' };
+      lastWall = null;
       aimStart = p;
       aimDragged = false;
       aimAt(p);
@@ -378,7 +388,8 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       const t = aimTile;
       aimTile = null;
       gest = null;
-      if (t && ctx.placing) ctx.tryPlaceAt(t.tx, t.ty);
+      if (t && ctx.placing && ctx.placing !== 'wall') ctx.tryPlaceAt(t.tx, t.ty);
+      lastWall = null;
       return;
     }
     if (gest.mode === 'undecided') {
@@ -501,7 +512,10 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       const flash = ctx.ghostFlash && performance.now() < ctx.ghostFlash.until ? ctx.ghostFlash : null;
       let tile: { tx: number; ty: number } | null = null;
       let forceBad = false;
-      if (gest && gest.mode === 'aim') tile = aimTile;
+      if (gest && gest.mode === 'aim') {
+        tile = aimTile;
+        paintWall();
+      }
       else if (flash) {
         tile = flash;
         forceBad = true;

@@ -5,11 +5,18 @@ import { BUILDINGS } from '../data/buildings';
 import { UNITS, MAX_QUEUE } from '../data/units';
 
 /** Ordinea cardurilor în tab-ul de clădiri. */
-export const BUILD_LIST: BuildingType[] = ['refinery', 'power', 'factory', 'barracks', 'turret', 'rocketTurret', 'airfield'];
+/** Tava de clădiri e împărțită în două secțiuni, ca să găsești repede un pătrat cu degetul. */
+export const BUILD_SECTIONS: { label: string; items: BuildingType[] }[] = [
+  { label: 'Bază', items: ['refinery', 'power', 'barracks', 'factory', 'airfield', 'radar', 'lab'] },
+  { label: 'Apărare', items: ['turret', 'rocketTurret', 'tesla', 'wall'] },
+];
+export const BUILD_LIST: BuildingType[] = BUILD_SECTIONS.flatMap((s) => s.items);
+/** Clădiri de apărare (pentru textele asistentului). */
+export const DEFENSE_BUILDINGS: BuildingType[] = ['turret', 'rocketTurret', 'tesla', 'wall'];
 
 /** Unitățile, grupate după clădirea care le face. */
 export const UNIT_GROUPS: Record<ProducerType, UnitType[]> = {
-  factory: ['tank', 'rocket', 'harvester', 'warHarvester'],
+  factory: ['tank', 'rocket', 'heavyTank', 'artillery', 'harvester', 'warHarvester'],
   barracks: ['soldier', 'bazooka'],
   airfield: ['bomber'],
 };
@@ -40,7 +47,7 @@ export function canShoot(t: UnitType): boolean {
   return UNITS[t].weapon !== null && t !== 'bomber';
 }
 
-const SHORT: Partial<Record<BuildingType | UnitType, string>> = { rocketTurret: 'Antiaerian', refinery: 'Rafinărie', bomber: 'Bombardier', warHarvester: 'Blindat' };
+const SHORT: Partial<Record<BuildingType | UnitType, string>> = { rocketTurret: 'Antiaerian', refinery: 'Rafinărie', bomber: 'Bombardier', warHarvester: 'Blindat', heavyTank: 'Tanc greu', artillery: 'Artilerie', tesla: 'Tesla', lab: 'Laborator' };
 /** Nume scurt, ca să încapă pe un pătrat de tavă. */
 export function shortName(t: BuildingType | UnitType): string {
   return SHORT[t] ?? nameOf(t);
