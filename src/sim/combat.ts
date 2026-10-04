@@ -473,15 +473,23 @@ function stuckAttackMove(world: World, internal: Internal, blocked: Uint8Array, 
   for (const k of walls.keys()) grid[k] = 0;
   const p2 = planPath(grid, w, h, unit, { x: dx, y: dy });
   if (p2.length === 0) return;
-  // primul zid întâlnit pe traseul fără ziduri
+  // primul zid întâlnit pe traseul fără ziduri; unitatea se apropie până îl vede, apoi îl atacă
   let px = unit.x, py = unit.y;
+  const trail: Vec[] = [{ x: px, y: py }];
   for (const wp of p2) {
     const len = Math.sqrt((wp.x - px) ** 2 + (wp.y - py) ** 2);
     const n = Math.max(1, Math.ceil(len / 0.4));
     for (let i = 1; i <= n; i++) {
       const x = px + ((wp.x - px) * i) / n, y = py + ((wp.y - py) * i) / n;
       const wall = walls.get(Math.floor(y) * w + Math.floor(x));
-      if (wall) { nav.flow = null; nav.engagedTarget = wall.id; return; }
+      if (wall) {
+        nav.flow = null;
+        nav.engagedTarget = wall.id;
+        const back = trail[Math.max(0, trail.length - 6)]; // ~2 tile-uri înaintea zidului
+        if (Math.abs(back.x - unit.x) + Math.abs(back.y - unit.y) > 0.6) unit.path = [{ x: back.x, y: back.y }];
+        return;
+      }
+      trail.push({ x, y });
     }
     px = wp.x; py = wp.y;
   }
