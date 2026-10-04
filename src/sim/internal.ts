@@ -43,16 +43,15 @@ export interface AIMemory {
   bombTimer: number;            // secunde până la următorul raid aerian
 }
 
-/** Memoria asistentului unui jucător (în afara contractului). */
+/** Memoria asistentului unui jucător (în afara contractului). Asistentul conduce doar BAZA: construiește și produce. */
 export interface AssistMem {
-  known: Map<EntityId, { x: number; y: number }>; // clădiri inamice văzute
   lastEvent: { economy: number; defense: number; attack: number }; // tick-ul ultimului eveniment 'assist' (throttle)
-  econWant: { type: string; cost: number } | null; // clădirea pe care economia o așteaptă (rezervă pentru atac)
-  waves: number;                                   // câte atacuri a lansat
-  attackTarget: { x: number; y: number } | null;
-  defending: Map<EntityId, { hx: number; hy: number }>; // unități trimise la apărare, care se întorc apoi
+  wantCost: { economy: number; defense: number; attack: number };   // costul următorului lucru pe care modul îl așteaptă (0 = nimic)
+  turnSince: number;
+  turn: number;                                                     // rotația între modurile active (cine are prioritate la bani)
   airSeen: boolean;
-  startedBuild: boolean;                           // clădirea din slot a fost pornită de asistent (doar pe aia o plasează singur)
+  startedBuild: boolean;                                            // clădirea din slot a fost pornită de asistent
+  known: Map<EntityId, { x: number; y: number }>;                   // clădiri inamice văzute (direcția spre inamic)
 }
 
 export interface Internal {
@@ -64,7 +63,11 @@ export interface Internal {
   projectileWeapon: Map<EntityId, WeaponDef>; // arma care a lansat proiectilul (daună/splash reale)
   bomber: Map<EntityId, BomberState>;
   assist: Map<Team, AssistMem>;
-  lastPlayerCmd: Map<EntityId, number>;       // ultimul tick în care jucătorul a dat o comandă explicită unității
+  guardPost: Map<EntityId, { x: number; y: number }>;   // postul fiecărui gardian
+  guardState: Map<EntityId, { x: number; y: number }>;  // gardian care răspunde la o alarmă (locul alarmei)
+  lastHit: Map<Team, { x: number; y: number; tick: number }>; // ultima lovitură în clădire/recoltor al echipei
+  playerRole: Set<EntityId>;                 // unități al căror rol l-a setat jucătorul (asistentul nu le schimbă)
+  pendingPost: Map<EntityId, { x: number; y: number }>; // postul ales de asistent, preluat de comanda 'role' a lui
   lastDamageTick: Map<EntityId, number>;      // ultimul tick în care unitatea a primit daună
   nextGroupMoveSeq: number;
 }
@@ -83,7 +86,11 @@ export function getInternal(world: object): Internal {
       projectileWeapon: new Map(),
       bomber: new Map(),
       assist: new Map(),
-      lastPlayerCmd: new Map(),
+      guardPost: new Map(),
+      guardState: new Map(),
+      lastHit: new Map(),
+      playerRole: new Set(),
+      pendingPost: new Map(),
       lastDamageTick: new Map(),
       nextGroupMoveSeq: 0,
     };
@@ -126,8 +133,8 @@ export function getAssistMem(internal: Internal, team: Team): AssistMem {
   let m = internal.assist.get(team);
   if (!m) {
     m = {
-      known: new Map(), lastEvent: { economy: -1e9, defense: -1e9, attack: -1e9 }, econWant: null,
-      waves: 0, attackTarget: null, defending: new Map(), airSeen: false, startedBuild: false,
+      lastEvent: { economy: -1e9, defense: -1e9, attack: -1e9 }, wantCost: { economy: 0, defense: 0, attack: 0 },
+      turn: 0, turnSince: 0, airSeen: false, startedBuild: false, known: new Map(),
     };
     internal.assist.set(team, m);
   }

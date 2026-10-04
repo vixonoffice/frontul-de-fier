@@ -1,7 +1,9 @@
 // Asistentul jucătorului (doar jucători umani): trei moduri independente, economie / apărare / atac.
+// Conduce DOAR baza (ce se construiește și ce se produce); nu dă niciodată ordine de mișcare sau atac armatei:
+// tactica și atacurile le face jucătorul. Apărarea produce gardieni (rol 'guard'), care acționează singuri (guard.ts).
 // Rulează în step(), determinist (fără rng), și acționează EXCLUSIV prin comenzi normale (aceleași costuri și reguli
-// ca pentru jucător): nu are bani sau viteză în plus. Fiecare mod își ia decizia o dată pe secundă, eșalonat.
-import type { AssistMode, Building, BuildingType, Command, EntityId, Player, Team, Unit, UnitType, Vec, World } from './types';
+// ca pentru jucător): nu are bani sau viteză în plus. Fiecare mod decide o dată pe secundă, eșalonat.
+import type { AssistMode, Building, BuildingType, Command, Player, Team, Unit, UnitType, Vec, World } from './types';
 import { BUILDINGS } from '../data/buildings';
 import { MAX_QUEUE, UNITS } from '../data/units';
 import type { AssistMem, Internal } from './internal';
@@ -10,17 +12,15 @@ import { isVisible } from './fog';
 import { center, distCC, sortedBuildingIds, sortedUnitIds } from './entities';
 import { findPlacement } from './placement';
 import { isFlying } from './air';
+import { guardsOf } from './guard';
 
-const PLAYER_COOLDOWN_TICKS = 200;   // ~10 s: unitățile comandate de jucător nu sunt atinse
 const EVENT_THROTTLE_TICKS = 20;     // cel mult un eveniment 'assist' pe secundă pe mod
-const DEFEND_RADIUS = 12;            // inamic la mai puțin de atât de o clădire proprie = alarmă
-const ARMY_NEAR_BASE = 18;           // „strâns la bază”
-const ATTACK_START = 8;              // pragul primului atac
-const ATTACK_GROWTH = 2;             // cu cât crește pragul după fiecare atac
-const ATTACK_CAP = 30;
+const GUARD_POOL_RADIUS = 25;        // unitățile libere din jurul bazei pot fi promovate gardieni
+const TURN_MAX_TICKS = 600;          // un mod care așteaptă prea mult pierde prioritatea la bani
 const MAX_REFINERIES = 4;
-const COMBAT: ReadonlySet<UnitType> = new Set<UnitType>(['tank', 'rocket', 'soldier', 'bazooka']);
-const QUEUE_DEPTH = 3;               // atacul ține cozile umplute până la atât (plată pe rând)
+const QUEUE_DEPTH = 3;               // cozile se țin umplute până la atât (plata se face pe rând)
+
+type Mode3 = 'economy' | 'defense' | 'attack';
 
 // ---------- utilitare ----------
 
@@ -44,13 +44,9 @@ function baseCenter(bs: Building[], world: World): Vec {
   return hq ? center(hq) : { x: world.map.w / 2, y: world.map.h / 2 };
 }
 
-function recentPlayer(internal: Internal, id: EntityId, tick: number): boolean {
-  const t = internal.lastPlayerCmd.get(id);
-  return t !== undefined && tick - t < PLAYER_COOLDOWN_TICKS;
-}
-
 function emit(world: World, mem: AssistMem, team: Team, mode: AssistMode, action: 'build' | 'train' | 'attack' | 'defend',
   what: UnitType | BuildingType | null, x: number, y: number): void {
+  if (mode === 'allIn') return;
   if (world.tick - mem.lastEvent[mode] < EVENT_THROTTLE_TICKS) return;
   mem.lastEvent[mode] = world.tick;
   world.events.push({ type: 'assist', team, mode, action, what, x, y });
@@ -94,23 +90,6 @@ function enemyDir(world: World, mem: AssistMem, team: Team, from: Vec): Vec {
   return { x: (tgt.x - from.x) / d, y: (tgt.y - from.y) / d };
 }
 
-/** Ținta unui atac: cea mai apropiată clădire inamică cunoscută, altfel startul adversarului. */
-function attackTargetPos(world: World, mem: AssistMem, team: Team, from: Vec): Vec | null {
-  let best: Vec | null = null;
-  let bestD = Infinity;
-  for (const pos of mem.known.values()) {
-    const d = distCC(from, pos);
-    if (d < bestD) { bestD = d; best = pos; }
-  }
-  if (best) return best;
-  for (const p of world.players) {
-    if (p.team === team || p.defeated) continue;
-    const s = world.map.starts[p.team];
-    if (s) return { x: s.x, y: s.y };
-  }
-  return null;
-}
-
 function queuedCount(q: Player['production']['units'], type: UnitType): number {
   let n = 0;
   for (const s of q) if (s.type === type) n++;
@@ -123,20 +102,73 @@ function aliveCount(world: World, team: Team, type: UnitType): number {
   return n;
 }
 
-/** Garda de acasă: primele 2 tancuri și primii 3 infanteriști (după id). */
-export function homeGuardIds(world: World, team: Team): Set<EntityId> {
-  const guard = new Set<EntityId>();
-  let tanks = 0, inf = 0;
-  for (const id of sortedUnitIds(world)) {
-    const u = world.units.get(id);
-    if (!u || u.team !== team) continue;
-    if (u.type === 'tank' && tanks < 2) { guard.add(id); tanks++; }
-    else if ((u.type === 'soldier' || u.type === 'bazooka') && inf < 3) { guard.add(id); inf++; }
-  }
-  return guard;
+// ---------- buget: împărțire corectă între modurile active ----------
+
+interface Ctx {
+  world: World; internal: Internal; p: Player; mem: AssistMem; mode: Mode3;
+  out: Command[]; budget: number; spent: boolean; blocked: boolean;
 }
 
-// ---------- economie ----------
+function activeModes(p: Player): Mode3[] {
+  const r: Mode3[] = [];
+  if (p.assist.economy) r.push('economy');
+  if (p.assist.defense) r.push('defense');
+  if (p.assist.attack) r.push('attack');
+  return r;
+}
+
+function makeCtx(world: World, internal: Internal, p: Player, mem: AssistMem, mode: Mode3, out: Command[]): Ctx {
+  const act = activeModes(p);
+  const holder = act[mem.turn % act.length];
+  // singur: toți banii; altfel doar cel cu rândul are toți banii, ceilalți ce rămâne după ce îi rezervă lui
+  const budget = act.length <= 1 || mode === holder ? p.credits : p.credits - mem.wantCost[holder];
+  mem.wantCost[mode] = 0;
+  return { world, internal, p, mem, mode, out, budget, spent: false, blocked: false };
+}
+
+/** Încearcă să cheltuiască `cost`; dacă nu ajung banii, modul așteaptă (nu mai cumpără nimic în acest ciclu). */
+function buy(ctx: Ctx, cost: number): boolean {
+  if (ctx.blocked) return false;
+  if (ctx.budget >= cost) { ctx.budget -= cost; ctx.spent = true; return true; }
+  ctx.blocked = true;
+  if (ctx.mem.wantCost[ctx.mode] === 0) ctx.mem.wantCost[ctx.mode] = cost;
+  return false;
+}
+
+/** După ciclu: rotește prioritatea dacă modul cu rândul a cumpărat, n-are nimic de cumpărat sau așteaptă prea mult. */
+function endCtx(ctx: Ctx): void {
+  const act = activeModes(ctx.p);
+  if (act.length <= 1) return;
+  const holder = act[ctx.mem.turn % act.length];
+  if (ctx.mode !== holder) return;
+  const waited = ctx.world.tick - ctx.mem.turnSince > TURN_MAX_TICKS;
+  if (ctx.spent || ctx.mem.wantCost[ctx.mode] === 0 || waited) {
+    ctx.mem.turn = (ctx.mem.turn + 1) % act.length;
+    ctx.mem.turnSince = ctx.world.tick;
+  }
+}
+
+/** Pornește o clădire în slotul de construcție (dacă e liber, are cerințele și sunt bani). */
+function startBuilding(ctx: Ctx, bs: Building[], type: BuildingType, base: Vec): boolean {
+  const def = BUILDINGS[type];
+  if (ctx.p.production.building) return false;
+  if (def.requires && countType(bs, def.requires) === 0) return false;
+  if (!buy(ctx, def.cost)) return false;
+  ctx.out.push({ t: 'buildStart', team: ctx.p.team, building: type });
+  ctx.mem.startedBuild = true;
+  emit(ctx.world, ctx.mem, ctx.p.team, ctx.mode, 'build', type, base.x, base.y);
+  return true;
+}
+
+/** Pune în coadă o unitate (plătită pe rând de producție). */
+function queueUnit(ctx: Ctx, type: UnitType, base: Vec): boolean {
+  if (!buy(ctx, UNITS[type].cost)) return false;
+  ctx.out.push({ t: 'train', team: ctx.p.team, unit: type, count: 1 });
+  emit(ctx.world, ctx.mem, ctx.p.team, ctx.mode, 'train', type, base.x, base.y);
+  return true;
+}
+
+// ---------- plasare ----------
 
 /** Cel mai apropiat de bază tile cu minereu aflat departe de rafinăriile existente. */
 function farOre(world: World, bs: Building[], base: Vec): Vec | null {
@@ -156,91 +188,6 @@ function farOre(world: World, bs: Building[], base: Vec): Vec | null {
   return best;
 }
 
-function runEconomy(world: World, internal: Internal, p: Player, mem: AssistMem, out: Command[]): void {
-  const team = p.team;
-  const bs = ownBuildings(world, team);
-  const base = baseCenter(bs, world);
-  const refs = countType(bs, 'refinery');
-  const hasFactory = countType(bs, 'factory') > 0;
-  const harvAlive = aliveCount(world, team, 'harvester');
-  const harvQueued = queuedCount(p.production.units, 'harvester');
-
-  // 2 recoltoare per rafinărie
-  mem.econWant = null;
-  if (hasFactory && refs > 0 && harvAlive + harvQueued < 2 * refs) {
-    if (p.credits >= UNITS.harvester.cost) {
-      out.push({ t: 'train', team, unit: 'harvester', count: 1 });
-      emit(world, mem, team, 'economy', 'train', 'harvester', base.x, base.y);
-    } else {
-      mem.econWant = { type: 'harvester', cost: UNITS.harvester.cost };
-    }
-  }
-
-  // recoltoare inactive înapoi la treabă (nu atinge ce mută jucătorul)
-  for (const id of sortedUnitIds(world)) {
-    const u = world.units.get(id);
-    if (!u || u.team !== team || u.type !== 'harvester' || u.order.kind !== 'idle') continue;
-    if (recentPlayer(internal, id, world.tick)) continue;
-    out.push({ t: 'harvest', team, ids: [id], x: u.x, y: u.y });
-  }
-
-  // clădire gata -> o plasează singur (doar dacă a pornit-o asistentul)
-  const slot = p.production.building;
-  if (!slot) mem.startedBuild = false;
-  if (slot && slot.ready && mem.startedBuild) {
-    placeReady(world, p, mem, bs, base, out, 'economy');
-    return;
-  }
-  if (slot) return;
-
-  // ce urmează în dezvoltarea bazei
-  let want: BuildingType | null = null;
-  let anchor = base;
-  if (refs === 0) want = 'refinery';
-  else if (!hasFactory) want = 'factory';
-  else if (countType(bs, 'barracks') === 0) want = 'barracks';
-  else if (refs < 2) want = 'refinery';
-  else if (refs < MAX_REFINERIES && harvAlive >= 2 * refs && farOre(world, bs, base)) want = 'refinery';
-  else if (countType(bs, 'airfield') === 0 && p.credits >= BUILDINGS.airfield.cost * 1.5) want = 'airfield';
-  if (want === 'refinery') {
-    const ore = farOre(world, bs, base);
-    if (ore) anchor = ore;
-  }
-  if (!want) return;
-  const def = BUILDINGS[want];
-  if (def.requires && countType(bs, def.requires) === 0) return;
-  if (p.credits >= def.cost) {
-    out.push({ t: 'buildStart', team, building: want });
-    mem.startedBuild = true;
-    const c = findPlacement(world, team, want, anchor);
-    emit(world, mem, team, 'economy', 'build', want, c ? c.tx : base.x, c ? c.ty : base.y);
-  } else if (!mem.econWant) {
-    mem.econWant = { type: want, cost: def.cost };
-  }
-}
-
-/** Plasează clădirea gata, cu ancora potrivită tipului. */
-function placeReady(world: World, p: Player, mem: AssistMem, bs: Building[], base: Vec, out: Command[], mode: AssistMode): void {
-  const slot = p.production.building!;
-  const type = slot.type;
-  let anchor = base;
-  let avoid: Vec[] | undefined;
-  if (type === 'refinery') {
-    const ore = farOre(world, bs, base);
-    if (ore) anchor = ore;
-  } else if (type === 'turret' || type === 'rocketTurret') {
-    const a = turretAnchor(world, mem, p.team, bs, base, type);
-    anchor = a;
-    avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret').map(center);
-  }
-  const spot = findPlacement(world, p.team, type, anchor, { avoid });
-  if (!spot) return;
-  out.push({ t: 'buildPlace', team: p.team, tx: spot.tx, ty: spot.ty });
-  emit(world, mem, p.team, mode, 'build', type, spot.tx, spot.ty);
-}
-
-// ---------- apărare ----------
-
 function turretAnchor(world: World, mem: AssistMem, team: Team, bs: Building[], base: Vec, type: BuildingType): Vec {
   const dir = enemyDir(world, mem, team, base);
   const refs = bs.filter((b) => b.type === 'refinery');
@@ -254,31 +201,83 @@ function turretAnchor(world: World, mem: AssistMem, team: Team, bs: Building[], 
   return { x: base.x + dir.x * ring, y: base.y + dir.y * ring };
 }
 
-function runDefense(world: World, internal: Internal, p: Player, mem: AssistMem, out: Command[]): void {
+/** Clădirea gata (pornită de asistent) se plasează singură, cu ancora potrivită tipului. */
+function placeIfReady(ctx: Ctx, bs: Building[], base: Vec): void {
+  const p = ctx.p;
+  const slot = p.production.building;
+  if (!slot) { ctx.mem.startedBuild = false; return; }
+  if (!slot.ready || !ctx.mem.startedBuild) return;
+  const type = slot.type;
+  let anchor = base;
+  let avoid: Vec[] | undefined;
+  if (type === 'refinery') {
+    const ore = farOre(ctx.world, bs, base);
+    if (ore) anchor = ore;
+  } else if (type === 'turret' || type === 'rocketTurret') {
+    anchor = turretAnchor(ctx.world, ctx.mem, p.team, bs, base, type);
+    avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret').map(center);
+  }
+  const spot = findPlacement(ctx.world, p.team, type, anchor, { avoid });
+  if (!spot) return;
+  ctx.out.push({ t: 'buildPlace', team: p.team, tx: spot.tx, ty: spot.ty });
+  emit(ctx.world, ctx.mem, p.team, ctx.mode, 'build', type, spot.tx, spot.ty);
+}
+
+// ---------- economie ----------
+
+function runEconomy(ctx: Ctx): void {
+  const { world, p, out } = ctx;
   const team = p.team;
   const bs = ownBuildings(world, team);
   const base = baseCenter(bs, world);
-  const dir = enemyDir(world, mem, team, base);
-  const home = { x: base.x + dir.x * 5, y: base.y + dir.y * 5 };
+  placeIfReady(ctx, bs, base);
+  const refs = countType(bs, 'refinery');
+  const hasFactory = countType(bs, 'factory') > 0;
+  const harvAlive = aliveCount(world, team, 'harvester');
+  const harvQueued = queuedCount(p.production.units, 'harvester');
 
-  // amenințări: inamici văzuți aproape de orice clădire proprie
-  let threat: Vec | null = null;
+  // recoltoarele inactive se întorc la minat
   for (const id of sortedUnitIds(world)) {
     const u = world.units.get(id);
-    if (!u || u.team === team || world.players[u.team].defeated) continue;
-    if (!isVisible(world, team, u.x, u.y)) continue;
-    for (const b of bs) {
-      if (distCC(center(b), { x: u.x, y: u.y }) < DEFEND_RADIUS) { threat = { x: u.x, y: u.y }; break; }
-    }
-    if (threat) break;
+    if (!u || u.team !== team || u.type !== 'harvester' || u.order.kind !== 'idle') continue;
+    out.push({ t: 'harvest', team, ids: [id], x: u.x, y: u.y });
   }
 
-  // clădire gata -> plasare (doar dacă a pornit-o asistentul)
-  const slot = p.production.building;
-  if (!slot) mem.startedBuild = false;
-  if (slot && slot.ready && mem.startedBuild && !p.assist.economy) {
-    placeReady(world, p, mem, bs, base, out, 'defense');
+  // 2 recoltoare per rafinărie
+  if (hasFactory && refs > 0 && harvAlive + harvQueued < 2 * refs) queueUnit(ctx, 'harvester', base);
+
+  // ce urmează în dezvoltarea bazei
+  let want: BuildingType | null = null;
+  if (refs === 0) want = 'refinery';
+  else if (!hasFactory) want = 'factory';
+  else if (countType(bs, 'barracks') === 0) want = 'barracks';
+  else if (refs < 2) want = 'refinery';
+  else if (refs < MAX_REFINERIES && harvAlive >= 2 * refs && farOre(world, bs, base)) want = 'refinery';
+  else if (countType(bs, 'airfield') === 0 && p.credits >= BUILDINGS.airfield.cost * 1.5) want = 'airfield';
+  if (want) startBuilding(ctx, bs, want, base);
+}
+
+// ---------- apărare ----------
+
+/** Postul gardianului cu numărul k: împrăștiat pe partea dinspre inamic, o parte lângă rafinării. */
+function guardPostFor(world: World, mem: AssistMem, team: Team, bs: Building[], base: Vec, k: number): Vec {
+  const dir = enemyDir(world, mem, team, base);
+  const refs = bs.filter((b) => b.type === 'refinery');
+  const lateral = ((k % 5) - 2) * 2;
+  if (k % 3 === 2 && refs.length > 0) {
+    const r = center(refs[((k / 3) | 0) % refs.length]);
+    return { x: r.x + dir.x * 3 - dir.y * lateral * 0.5, y: r.y + dir.y * 3 + dir.x * lateral * 0.5 };
   }
+  const ring = 5 + (k % 2);
+  return { x: base.x + dir.x * ring - dir.y * lateral, y: base.y + dir.y * ring + dir.x * lateral };
+}
+
+function runDefense(ctx: Ctx): void {
+  const { world, p, mem, out } = ctx;
+  const team = p.team;
+  const bs = ownBuildings(world, team);
+  const base = baseCenter(bs, world);
+  placeIfReady(ctx, bs, base);
 
   // turele proporționale cu ce deține jucătorul
   let nonTurret = 0;
@@ -289,77 +288,48 @@ function runDefense(world: World, internal: Internal, p: Player, mem: AssistMem,
   let aaTarget = Math.min(3, Math.floor(nonTurret / 4));
   if (mem.airSeen) aaTarget = Math.max(aaTarget, 2);
   const hasFactory = countType(bs, 'factory') > 0;
-  const econBusy = p.assist.economy && mem.econWant !== null && threat === null;
-  if (!slot && !econBusy) {
+  if (!p.production.building) {
     let want: BuildingType | null = null;
     if (mem.airSeen && hasFactory && aaHave < aaTarget) want = 'rocketTurret';
     else if (gunHave < gunTarget) want = 'turret';
     else if (hasFactory && aaHave < aaTarget) want = 'rocketTurret';
-    if (want && p.credits >= BUILDINGS[want].cost) {
-      out.push({ t: 'buildStart', team, building: want });
-      mem.startedBuild = true;
-      emit(world, mem, team, 'defense', 'build', want, base.x, base.y);
-    }
+    if (want) startBuilding(ctx, bs, want, base);
   }
 
-  // garda de acasă: 2 tancuri + 3 infanteriști
-  const reserve = p.assist.economy && mem.econWant ? mem.econWant.cost : 0;
-  const guard = homeGuardIds(world, team);
+  // gardieni: 2 tancuri + 3 infanteriști, prin rolul 'guard' (nu schimbă rolurile setate de jucător)
+  const guards = guardsOf(world, team);
   let gTanks = 0, gInf = 0;
-  for (const id of guard) {
-    const u = world.units.get(id)!;
-    if (u.type === 'tank') gTanks++; else gInf++;
-  }
-  if (hasFactory && gTanks + queuedCount(p.production.units, 'tank') < 2 && p.credits - reserve >= UNITS.tank.cost) {
-    out.push({ t: 'train', team, unit: 'tank', count: 1 });
-    emit(world, mem, team, 'defense', 'train', 'tank', base.x, base.y);
-  }
-  if (countType(bs, 'barracks') > 0) {
-    const pend = queuedCount(p.production.infantry, 'soldier') + queuedCount(p.production.infantry, 'bazooka');
-    if (gInf + pend < 3 && p.credits - reserve >= UNITS.soldier.cost) {
-      out.push({ t: 'train', team, unit: gInf % 2 === 0 ? 'soldier' : 'bazooka', count: 1 });
-      emit(world, mem, team, 'defense', 'train', 'soldier', base.x, base.y);
-    }
-  }
-
-  // garda staționează lângă bază, spre inamic
-  const guardIdle: EntityId[] = [];
-  for (const id of guard) {
-    const u = world.units.get(id)!;
-    if (u.order.kind === 'idle' && !recentPlayer(internal, id, world.tick) && !mem.defending.has(id) && distCC(base, { x: u.x, y: u.y }) > 10) guardIdle.push(id);
-  }
-  if (guardIdle.length && !threat) out.push({ t: 'move', team, ids: guardIdle, x: home.x, y: home.y });
-
-  if (threat) {
-    // alarmă: toate unitățile de luptă libere atacă (attack-move) locul amenințării
-    const ids: EntityId[] = [];
+  for (const id of guards) { if (world.units.get(id)!.type === 'tank') gTanks++; else gInf++; }
+  const groups: Array<{ types: UnitType[]; target: number; have: number; queue: Player['production']['units']; ok: boolean; train: UnitType }> = [
+    { types: ['tank'], target: 2, have: gTanks, queue: p.production.units, ok: hasFactory, train: 'tank' },
+    { types: ['soldier', 'bazooka'], target: 3, have: gInf, queue: p.production.infantry, ok: countType(bs, 'barracks') > 0, train: 'soldier' },
+  ];
+  let k = guards.length;
+  for (const g of groups) {
+    let deficit = g.target - g.have;
+    if (deficit <= 0) continue;
+    // întâi promovează unități libere din jurul bazei
     for (const id of sortedUnitIds(world)) {
-      const u = world.units.get(id);
-      if (!u || u.team !== team || !COMBAT.has(u.type) || u.order.kind !== 'idle') continue;
-      if (recentPlayer(internal, id, world.tick)) continue;
-      if (distCC(base, { x: u.x, y: u.y }) > 35) continue;
-      ids.push(id);
-      mem.defending.set(id, { hx: home.x, hy: home.y });
+      if (deficit <= 0) break;
+      const u = world.units.get(id) as Unit;
+      if (u.team !== team || !g.types.includes(u.type) || u.role !== 'attack' || u.order.kind !== 'idle') continue;
+      if (ctx.internal.playerRole.has(id) || ctx.internal.pendingPost.has(id)) continue;
+      if (distCC(base, { x: u.x, y: u.y }) > GUARD_POOL_RADIUS) continue;
+      const post = guardPostFor(world, mem, team, bs, base, k++);
+      ctx.internal.pendingPost.set(id, post);
+      out.push({ t: 'role', team, ids: [id], role: 'guard' });
+      emit(world, mem, team, 'defense', 'defend', u.type, post.x, post.y);
+      deficit--;
     }
-    if (ids.length) {
-      out.push({ t: 'attackMove', team, ids, x: threat.x, y: threat.y });
-      emit(world, mem, team, 'defense', 'defend', null, threat.x, threat.y);
+    // apoi produce ce lipsește
+    if (deficit > 0 && g.ok) {
+      const pending = g.types.reduce((n, t) => n + queuedCount(g.queue, t), 0);
+      if (pending < deficit && g.queue.length < QUEUE_DEPTH) queueUnit(ctx, g.train, base);
     }
-  } else if (mem.defending.size > 0) {
-    // pericolul a trecut: cei trimiși la apărare se întorc
-    const back: EntityId[] = [];
-    for (const [id, h] of [...mem.defending.entries()].sort((a, b) => a[0] - b[0])) {
-      const u = world.units.get(id);
-      if (!u) { mem.defending.delete(id); continue; }
-      if (u.order.kind !== 'idle') continue;
-      if (!recentPlayer(internal, id, world.tick) && distCC({ x: h.hx, y: h.hy }, { x: u.x, y: u.y }) > 3) back.push(id);
-      mem.defending.delete(id);
-    }
-    if (back.length) out.push({ t: 'move', team, ids: back, x: home.x, y: home.y });
   }
 }
 
-// ---------- atac ----------
+// ---------- atac: doar producție ----------
 
 function pickTypeByDeficit(world: World, team: Team, q: Player['production']['units'], mix: Array<[UnitType, number]>): UnitType {
   let best = mix[0][0];
@@ -372,77 +342,28 @@ function pickTypeByDeficit(world: World, team: Team, q: Player['production']['un
   return best;
 }
 
-function runAttack(world: World, internal: Internal, p: Player, mem: AssistMem, out: Command[]): void {
+function runAttack(ctx: Ctx): void {
+  const { world, p } = ctx;
   const team = p.team;
   const bs = ownBuildings(world, team);
   const base = baseCenter(bs, world);
-  const reserve = p.assist.economy && mem.econWant ? mem.econWant.cost : 0;
-  let budget = p.credits - reserve;
+  placeIfReady(ctx, bs, base);
 
-  // cozi ținute pline (plata se face pe rând, deci nu blochează banii dinainte)
+  // clădirile de atac: fabrică, cazarmă, apoi aerodrom când se permite
+  if (countType(bs, 'refinery') > 0 && countType(bs, 'factory') === 0) startBuilding(ctx, bs, 'factory', base);
+  else if (countType(bs, 'factory') > 0 && countType(bs, 'barracks') === 0) startBuilding(ctx, bs, 'barracks', base);
+  else if (countType(bs, 'factory') > 0 && countType(bs, 'airfield') === 0 && p.credits >= BUILDINGS.airfield.cost * 1.5) startBuilding(ctx, bs, 'airfield', base);
+
+  // cozile ținute pline cu un mix de atac (rol implicit 'attack'; unitățile merg la punctul de adunare)
   const queues: Array<{ has: boolean; q: Player['production']['units']; mix: Array<[UnitType, number]> }> = [
     { has: countType(bs, 'factory') > 0, q: p.production.units, mix: [['tank', 5], ['rocket', 2]] },
     { has: countType(bs, 'barracks') > 0, q: p.production.infantry, mix: [['soldier', 3], ['bazooka', 2]] },
   ];
   for (const { has, q, mix } of queues) {
     if (!has || q.length >= QUEUE_DEPTH || q.length >= MAX_QUEUE) continue;
-    const type = pickTypeByDeficit(world, team, q, mix);
-    if (budget < UNITS[type].cost) continue;
-    budget -= UNITS[type].cost;
-    out.push({ t: 'train', team, unit: type, count: 1 });
-    emit(world, mem, team, 'attack', 'train', type, base.x, base.y);
+    queueUnit(ctx, pickTypeByDeficit(world, team, q, mix), base);
   }
-  if (countType(bs, 'airfield') > 0 && p.production.air.length < 1 && budget >= UNITS.bomber.cost + 500) {
-    budget -= UNITS.bomber.cost;
-    out.push({ t: 'train', team, unit: 'bomber', count: 1 });
-    emit(world, mem, team, 'attack', 'train', 'bomber', base.x, base.y);
-  }
-
-  // armata: unități de luptă libere, neînrolate în garda de acasă
-  const guard = p.assist.defense ? homeGuardIds(world, team) : new Set<EntityId>();
-  const gathered: EntityId[] = [];
-  const stray: EntityId[] = [];
-  for (const id of sortedUnitIds(world)) {
-    const u = world.units.get(id) as Unit;
-    if (u.team !== team || !COMBAT.has(u.type) || u.order.kind !== 'idle') continue;
-    if (guard.has(id) || mem.defending.has(id) || recentPlayer(internal, id, world.tick)) continue;
-    if (distCC(base, { x: u.x, y: u.y }) <= ARMY_NEAR_BASE) gathered.push(id); else stray.push(id);
-  }
-  const target = attackTargetPos(world, mem, team, base);
-  const threshold = Math.min(ATTACK_CAP, ATTACK_START + ATTACK_GROWTH * mem.waves);
-  if (target && gathered.length >= threshold) {
-    out.push({ t: 'attackMove', team, ids: gathered.concat(stray), x: target.x, y: target.y });
-    mem.waves++;
-    mem.attackTarget = target;
-    emit(world, mem, team, 'attack', 'attack', null, target.x, target.y);
-  } else if (target && mem.waves > 0 && stray.length > 0) {
-    // unități rămase inactive departe de bază: li se reface ordinul
-    out.push({ t: 'attackMove', team, ids: stray, x: target.x, y: target.y });
-    emit(world, mem, team, 'attack', 'attack', null, target.x, target.y);
-  }
-
-  // bombardiere: întâi turelele, apoi clădirile de producție, apoi orice
-  const ready: EntityId[] = [];
-  for (const id of sortedUnitIds(world)) {
-    const u = world.units.get(id) as Unit;
-    if (u.team === team && u.type === 'bomber' && u.order.kind === 'idle' && u.alt === 0 && u.ammo >= 2 && !recentPlayer(internal, id, world.tick)) ready.push(id);
-  }
-  if (ready.length > 0 && mem.known.size > 0) {
-    let best: Vec | null = null;
-    let bestScore = Infinity;
-    for (const [id, pos] of mem.known) {
-      const b = world.buildings.get(id);
-      if (!b) continue;
-      const prio = b.type === 'turret' || b.type === 'rocketTurret' ? 0
-        : b.type === 'factory' || b.type === 'barracks' || b.type === 'airfield' ? 1 : 2;
-      const score = prio * 1000 + distCC(base, pos);
-      if (score < bestScore) { bestScore = score; best = pos; }
-    }
-    if (best) {
-      out.push({ t: 'bomb', team, ids: ready, x: best.x, y: best.y });
-      emit(world, mem, team, 'attack', 'attack', 'bomber', best.x, best.y);
-    }
-  }
+  if (countType(bs, 'airfield') > 0 && p.production.air.length < 1) queueUnit(ctx, 'bomber', base);
 }
 
 // ---------- punct de intrare ----------
@@ -457,10 +378,13 @@ export function runAssist(world: World, internal: Internal): Command[] {
     const mem = getAssistMem(internal, p.team);
     const phase = world.tick % 20;
     if (phase === 0 || phase === 7 || phase === 13) updateKnown(world, mem, p.team);
-    if (a.economy && phase === 0) runEconomy(world, internal, p, mem, out);
-    if (a.defense && phase === 7) runDefense(world, internal, p, mem, out);
-    if (a.attack && phase === 13) runAttack(world, internal, p, mem, out);
-    if (!a.economy) mem.econWant = null;
+    const mode: Mode3 | null = phase === 0 ? 'economy' : phase === 7 ? 'defense' : phase === 13 ? 'attack' : null;
+    if (!mode || !a[mode]) continue;
+    const ctx = makeCtx(world, internal, p, mem, mode, out);
+    if (mode === 'economy') runEconomy(ctx);
+    else if (mode === 'defense') runDefense(ctx);
+    else runAttack(ctx);
+    endCtx(ctx);
   }
   return out;
 }
