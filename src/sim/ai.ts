@@ -202,7 +202,8 @@ function runOne(world: World, internal: Internal, team: Team, difficulty: Diffic
   mem.scoutTimer -= dt;
   if (mem.scoutTimer <= 0) {
     mem.scoutTimer = params.scoutInterval;
-    scout(world, internal, team, cmds);
+    // pe Ușor nu trimite cercetași înainte de primul val: altfel îi omoară începătorului singurul recoltor în primul minut
+    if (!(params === AI_PARAMS.easy && world.tick < params.firstWave * 20)) scout(world, internal, team, cmds);
   }
 
   if (mem.waveTimer <= 0) mem.waveTimer = params.firstWave;
