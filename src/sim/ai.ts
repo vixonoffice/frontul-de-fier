@@ -276,9 +276,9 @@ function placementFor(world: World, internal: Internal, team: Team, type: Buildi
   const mem = getAIMemory(internal, team);
   let anchor: Vec = base;
   let avoid: Vec[] | undefined;
-  if (type === 'turret') {
+  if (type === 'turret' || type === 'tesla') {
     anchor = perimeterAnchor(world, internal, team, bs, base, mem.knownEnemyBuildings.values()) ?? base;
-    avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret').map(center);
+    avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret' || b.type === 'tesla').map(center);
   } else if (type === 'rocketTurret') {
     const vip = bs.filter((b) => b.type === 'factory' || b.type === 'airfield' || b.type === 'refinery');
     anchor = vip.length ? center(vip[bs.filter((b) => b.type === 'rocketTurret').length % vip.length]) : base;
@@ -295,6 +295,7 @@ function decide(world: World, internal: Internal, team: Team, difficulty: Diffic
   const base = baseB ? center(baseB) : { x: world.map.w / 2, y: world.map.h / 2 };
   const bs = ownBuildingsOf(world, team);
   let saving = false;
+  const holdCheap = world.tick < mem.heavySave; // strânge pentru tanc greu / artilerie
 
   const count = (t: Building['type']) => teamBuildingsOfType(world, team, t).length;
   // recordul fiecărui tip: normal/hard reconstruiesc ce li s-a distrus
@@ -311,7 +312,7 @@ function decide(world: World, internal: Internal, team: Team, difficulty: Diffic
     const hasRefinery = count('refinery') > 0;
     const hasBarracks = count('barracks') > 0;
     const turretCount = count('turret');
-    const body = bs.length - turretCount - count('rocketTurret');
+    const body = bs.length - turretCount - count('rocketTurret') - count('tesla') - count('wall');
     const turretTarget = params.turretTarget + (difficulty === 'normal' ? Math.floor(body / 4) : 0);
     const aaTarget = difficulty === 'hard' ? 2 : difficulty === 'normal' ? 1 : 0;
     const pw = powerOf(world, team);
@@ -326,6 +327,9 @@ function decide(world: World, internal: Internal, team: Team, difficulty: Diffic
     else if (turretCount < turretTarget) next = 'turret';
     else if (mem.airThreat && count('rocketTurret') < aaTarget) next = 'rocketTurret';
     else if (difficulty === 'hard' && turretCount >= 2 && count('airfield') === 0) next = 'airfield';
+    else if (difficulty !== 'easy' && count('radar') === 0 && count('refinery') >= 2 && world.tick > (difficulty === 'hard' ? 10 : 15) * 1200) next = 'radar';
+    else if (difficulty !== 'easy' && count('radar') > 0 && count('lab') === 0) next = 'lab';
+    else if (difficulty !== 'easy' && count('lab') > 0 && count('tesla') < (difficulty === 'hard' ? 2 : 1) && turretCount >= 2) next = 'tesla';
     else if (rebuild('refinery')) next = 'refinery';
     else if (rebuild('factory')) next = 'factory';
     else if (rebuild('power')) next = 'power';
@@ -360,12 +364,20 @@ function decide(world: World, internal: Internal, team: Team, difficulty: Diffic
   if (harv < harvWanted && !harvQueued && p.credits >= UNITS.harvester.cost) {
     cmds.push({ t: 'train', team, unit: 'harvester' });
   } else if (!saving && p.production.units.length < 3 && p.credits >= UNITS.rocket.cost) {
-    const type: UnitType = chance(world, 0.62) ? 'tank' : 'rocket';
+    let type: UnitType = chance(world, 0.62) ? 'tank' : 'rocket';
+    if (holdCheap) type = chance(world, 0.6) ? 'heavyTank' : 'artillery';
+    else if (difficulty !== 'easy' && count('lab') > 0) {
+      // tehnologie: tancuri grele și artilerie (rămâne în spate, în formație, și bate turelele)
+      const heavy = difficulty === 'hard' ? 0.3 : 0.18, art = difficulty === 'hard' ? 0.18 : 0.1;
+      if (chance(world, heavy)) type = 'heavyTank';
+      else if (chance(world, art / (1 - heavy))) type = 'artillery';
+    }
     if (p.credits >= UNITS[type].cost) cmds.push({ t: 'train', team, unit: type });
+    else if (type === 'heavyTank' || type === 'artillery') mem.heavySave = world.tick + 20 * 14; // strânge bani pentru unitatea scumpă
   }
 
   // infanterie din cazarmă, în paralel cu fabrica
-  if (!saving && p.production.infantry.length < params.infantryQueue && p.credits >= UNITS.bazooka.cost) {
+  if (!saving && !holdCheap && p.production.infantry.length < params.infantryQueue && p.credits >= UNITS.bazooka.cost) {
     const type: UnitType = chance(world, 0.6) ? 'soldier' : 'bazooka';
     cmds.push({ t: 'train', team, unit: type });
   }

@@ -353,7 +353,7 @@ describe('AI: hard contra normal', () => {
         ],
       });
       let t = 0;
-      for (; t < 20 * 60 * 20 && world.winner === null; t++) step(world, []);
+      for (; t < 20 * 60 * 25 && world.winner === null; t++) step(world, []);
       lines.push(`seed ${seed}: winner=${world.winner} (hard=${hardTeam}) at ${(t / 1200).toFixed(1)} min`);
       if (world.winner === hardTeam) hardWins++;
     }

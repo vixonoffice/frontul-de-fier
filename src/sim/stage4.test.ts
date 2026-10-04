@@ -275,3 +275,126 @@ describe('Tesla și radar', () => {
     expect(world.players[0].radar).toBe(false);
   });
 });
+
+// ---------- asistent / AI cu conținutul nou ----------
+
+function reachesAll(world: World, team: Team): boolean {
+  const { w, h, terrain } = world.map;
+  const blockedWall = new Set<number>();
+  for (const b of world.buildings.values()) if (b.type === 'wall') blockedWall.add(b.ty * w + b.tx);
+  const hq = [...world.buildings.values()].find((b) => b.team === team && b.type === 'hq')!;
+  const seen = new Uint8Array(w * h);
+  const stack = [Math.floor(hq.ty + hq.h / 2) * w + Math.floor(hq.tx + hq.w / 2)];
+  seen[stack[0]] = 1;
+  while (stack.length) {
+    const c = stack.pop()!;
+    const cx = c % w, cy = (c / w) | 0;
+    for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const k = ny * w + nx;
+      if (seen[k] || terrain[k] !== TERRAIN_GROUND || blockedWall.has(k)) continue;
+      seen[k] = 1;
+      stack.push(k);
+    }
+  }
+  const near = (x: number, y: number): boolean => {
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = Math.floor(x) + dx, Y = Math.floor(y) + dy;
+      if (X >= 0 && Y >= 0 && X < w && Y < h && seen[Y * w + X]) return true;
+    }
+    return false;
+  };
+  for (const b of world.buildings.values()) {
+    if (b.team !== team || b.type === 'wall') continue;
+    if (!near(b.tx + b.w / 2, b.ty + b.h / 2) && ![...Array(b.w + 2).keys()].some((i) => near(b.tx - 1 + i, b.ty - 1) || near(b.tx - 1 + i, b.ty + b.h))) return false;
+  }
+  world.players.forEach((p, i) => { if (p.team !== team) { /* inamic */ void i; } });
+  const enemy = world.map.starts[team === 0 ? 1 : 0];
+  if (!near(enemy.x, enemy.y)) return false;
+  for (let i = 0; i < world.map.ore.length; i++) {
+    if (world.map.ore[i] > 0 && Math.hypot((i % w) - hq.tx, ((i / w) | 0) - hq.ty) < 14 && !near(i % w, (i / w) | 0)) return false;
+  }
+  return true;
+}
+
+describe('asistent și AI cu tehnologia nouă', () => {
+  it('planul de ziduri închide un trecător redundant, dar nu sigilează baza', async () => {
+    const { wallPlan } = await import('./baseplan');
+    const world = createWorld(setup(6));
+    clearTeam(world, 0);
+    clearTeam(world, 1);
+    const { w, h, terrain, ore } = world.map;
+    terrain.fill(TERRAIN_ROCK);
+    ore.fill(0);
+    const hq = [...world.buildings.values()].find((b) => b.team === 0 && b.type === 'hq')!;
+    const bx = hq.tx + 1, by = hq.ty + 1;
+    const e = world.map.starts[1];
+    const room = (cx: number, cy: number, r: number): void => {
+      for (let y = Math.max(1, Math.floor(cy - r)); y <= Math.min(h - 2, Math.ceil(cy + r)); y++) for (let x = Math.max(1, Math.floor(cx - r)); x <= Math.min(w - 2, Math.ceil(cx + r)); x++) terrain[y * w + x] = TERRAIN_GROUND;
+    };
+    room(bx, by, 9);
+    room(e.x, e.y, 9);
+    const carve = (x0: number, y0: number, x1: number, y1: number): void => {
+      for (let x = Math.min(x0, x1); x <= Math.max(x0, x1); x++) { terrain[y0 * w + x] = TERRAIN_GROUND; terrain[(y0 + 1) * w + x] = TERRAIN_GROUND; }
+      for (let y = Math.min(y0, y1); y <= Math.max(y0, y1); y++) { terrain[y * w + x1] = TERRAIN_GROUND; terrain[y * w + x1 + 1] = TERRAIN_GROUND; }
+    };
+    const ex = Math.floor(e.x), ey = Math.floor(e.y);
+    carve(bx, by, ex, ey);          // întâi pe orizontală, apoi pe verticală
+    // al doilea drum: pe verticală apoi orizontală
+    for (let y = Math.min(by, ey); y <= Math.max(by, ey); y++) { terrain[y * w + bx] = TERRAIN_GROUND; terrain[y * w + bx + 1] = TERRAIN_GROUND; }
+    for (let x = Math.min(bx, ex); x <= Math.max(bx, ex); x++) { terrain[ey * w + x] = TERRAIN_GROUND; terrain[(ey + 1) * w + x] = TERRAIN_GROUND; }
+    const bs = [...world.buildings.values()].filter((b) => b.team === 0);
+    const plan = wallPlan(world, getInternal(world), 0, bs, { x: bx, y: by });
+    expect(plan.length).toBeGreaterThan(0);
+    for (const t of plan) { spawnBuilding(world, getInternal(world), buildBlockedGrid(world), 0, 'wall', t.tx, t.ty); }
+    expect(reachesAll(world, 0)).toBe(true);
+  });
+
+  it('apărarea pe hărți „passes” nu sigilează niciodată baza (5 seed-uri, 5 minute)', () => {
+    let totalWalls = 0;
+    for (const seed of [1, 2, 3, 4, 5]) {
+      const world = createWorld({ ...setup(seed), mapStyle: 'passes' });
+      clearTeam(world, 1);
+      world.players[0].credits = 60000;
+      step(world, [{ t: 'assist', team: 0, mode: 'defense', on: true }, { t: 'assist', team: 0, mode: 'economy', on: true }]);
+      stepN(world, 20 * 60 * 5);
+      totalWalls += [...world.buildings.values()].filter((b) => b.team === 0 && b.type === 'wall').length;
+      expect(reachesAll(world, 0), `seed ${seed}`).toBe(true);
+    }
+    // eslint-disable-next-line no-console
+    console.log('ziduri puse de asistent pe 5 hărți passes: ' + totalWalls);
+  }, 120000);
+
+  it('economie + apărare + atac construiesc radar, laborator, Tesla și produc tancuri grele / artilerie', () => {
+    const world = createWorld(setup(4));
+    clearTeam(world, 1);
+    world.players[0].credits = 80000;
+    step(world, [{ t: 'assist', team: 0, mode: 'economy', on: true }, { t: 'assist', team: 0, mode: 'defense', on: true }, { t: 'assist', team: 0, mode: 'attack', on: true }]);
+    stepN(world, 20 * 60 * 10);
+    const has = (t: BuildingType) => [...world.buildings.values()].some((b) => b.team === 0 && b.type === t);
+    expect(has('radar')).toBe(true);
+    expect(has('lab')).toBe(true);
+    expect(has('tesla')).toBe(true);
+    const heavy = [...world.units.values()].filter((u) => u.team === 0 && (u.type === 'heavyTank' || u.type === 'artillery')).length;
+    expect(heavy).toBeGreaterThanOrEqual(1);
+    expect(world.players[0].power.made).toBeGreaterThanOrEqual(world.players[0].power.used);
+  }, 120000);
+
+  it('AI hard construiește radar și laborator și produce tancuri grele / artilerie', () => {
+    const world = createWorld({ seed: 2, mapSize: { w: 80, h: 80 }, mapStyle: 'open', players: [{ team: 0, isAI: true, difficulty: 'hard' }, { team: 1, isAI: true, difficulty: 'easy' }] });
+    for (const b of world.buildings.values()) if (b.team === 1) { b.hp = 1e9; b.maxHp = 1e9; } // adversar care nu cade: jocul continuă
+    const placed = new Set<string>();
+    const made = new Set<string>();
+    for (let t = 0; t < 20 * 60 * 14 && world.winner === null; t++) {
+      step(world, []);
+      for (const e of world.events) {
+        if (e.type === 'buildingPlaced' && e.team === 0) placed.add(e.building);
+        if (e.type === 'unitReady' && e.team === 0) made.add(e.unit);
+      }
+    }
+    expect(placed.has('radar')).toBe(true);
+    expect(placed.has('lab')).toBe(true);
+    expect(made.has('heavyTank') || made.has('artillery')).toBe(true);
+  }, 120000);
+});

@@ -52,6 +52,7 @@ export interface AIMemory {
   aimTeam: Team | null;         // echipa spre care ar merge următorul val
   flank: { ids: EntityId[]; x: number; y: number } | null; // grupul de flanc și ținta lui finală
   huntTimer: number;
+  heavySave: number;            // până la acest tick nu cheltuie pe unități ieftine (strânge pentru tanc greu / artilerie)
   waveIds: EntityId[];          // unitățile ultimului val
   waveTarget: { x: number; y: number } | null;
   retreat: Set<EntityId>;       // vehicule retrase pentru că erau grav avariate
@@ -68,6 +69,8 @@ export interface AssistMem {
   harvPrev: number;                                                 // numărul de recoltoare la ultima verificare
   lastHarvLoss: number;                                             // tick-ul ultimei pierderi de recoltor
   rally: { x: number; y: number } | null;                           // punctul de adunare setat de asistent
+  wallPlan: Array<{ tx: number; ty: number }>;                      // ziduri planificate la strâmtori
+  wallPlanTick: number;                                             // când s-a calculat ultima oară planul
   startedBuild: boolean;                                            // clădirea din slot a fost pornită de asistent
   known: Map<EntityId, { x: number; y: number }>;                   // clădiri inamice văzute (direcția spre inamic)
 }
@@ -148,7 +151,7 @@ export function getNav(internal: Internal, id: EntityId): UnitNav {
 export function getAIMemory(internal: Internal, team: Team): AIMemory {
   let m = internal.ai.get(team);
   if (!m) {
-    m = { decisionTimer: 0, waveTimer: 0, waveNumber: 0, scoutTimer: 0, knownEnemyBuildings: new Map(), airThreat: false, bombTimer: 30, peak: new Map(), aimTeam: null, flank: null, huntTimer: 25, waveIds: [], waveTarget: null, retreat: new Set() };
+    m = { decisionTimer: 0, waveTimer: 0, waveNumber: 0, scoutTimer: 0, knownEnemyBuildings: new Map(), airThreat: false, bombTimer: 30, peak: new Map(), aimTeam: null, flank: null, huntTimer: 25, heavySave: 0, waveIds: [], waveTarget: null, retreat: new Set() };
     internal.ai.set(team, m);
   }
   return m;
@@ -168,7 +171,7 @@ export function getAssistMem(internal: Internal, team: Team): AssistMem {
   if (!m) {
     m = {
       lastEvent: { economy: -1e9, defense: -1e9, attack: -1e9 }, wantCost: { economy: 0, defense: 0, attack: 0 },
-      turn: 0, turnSince: 0, airSeen: false, startedBuild: false, econDone: false, harvPrev: 0, lastHarvLoss: 0, rally: null, known: new Map(),
+      turn: 0, turnSince: 0, airSeen: false, startedBuild: false, wallPlan: [], wallPlanTick: -1e9, econDone: false, harvPrev: 0, lastHarvLoss: 0, rally: null, known: new Map(),
     };
     internal.assist.set(team, m);
   }

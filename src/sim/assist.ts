@@ -14,7 +14,8 @@ import { center, distCC, sortedUnitIds } from './entities';
 import { findPlacement } from './placement';
 import { isFlying } from './air';
 import { guardsOf } from './guard';
-import { dirToEnemy, expansionOre, guardPosts, oreClusters, ownBuildingsOf, perimeterAnchor, refineryCap } from './baseplan';
+import { dirToEnemy, expansionOre, guardPosts, oreClusters, ownBuildingsOf, perimeterAnchor, refineryCap, wallPlan, wallTileSafe } from './baseplan';
+import { canPlaceBuilding } from './economy';
 import { powerOf, wouldBeLowPower } from './upkeep';
 
 const EVENT_THROTTLE_TICKS = 20;     // cel mult un eveniment 'assist' pe secundă pe mod
@@ -171,6 +172,11 @@ function knownPositions(mem: AssistMem): Vec[] { return [...mem.known.values()];
 function anchorFor(ctx: Ctx, bs: Building[], type: BuildingType, base: Vec): Vec {
   const { world, internal, mem, p } = ctx;
   if (type === 'turret') return perimeterAnchor(world, internal, p.team, bs, base, knownPositions(mem)) ?? base;
+  if (type === 'tesla') {
+    // laturile cele mai atacate: loviturile recente în clădiri; altfel direcția inamicului
+    const hits = internal.hitLog.get(p.team) ?? [];
+    return perimeterAnchor(world, internal, p.team, bs, base, hits.length ? hits : knownPositions(mem)) ?? base;
+  }
   if (type === 'rocketTurret') {
     const vip = bs.filter((b) => b.type === 'factory' || b.type === 'airfield' || b.type === 'refinery' || b.type === 'hq');
     const idx = countType(bs, 'rocketTurret');
@@ -188,7 +194,23 @@ function placeIfReady(ctx: Ctx, bs: Building[], base: Vec): void {
   if (!slot.ready || !ctx.mem.startedBuild) return;
   const type = slot.type;
   const anchor = anchorFor(ctx, bs, type, base);
-  const avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret').map(center);
+  if (type === 'wall') {
+    // zidurile se pun doar pe tile-urile planificate la strâmtori, și doar dacă baza rămâne legată pe sol
+    const plan = ctx.mem.wallPlan;
+    while (plan.length) {
+      const t = plan[0];
+      if (canPlaceBuilding(ctx.world, p.team, 'wall', t.tx, t.ty) && wallTileSafe(ctx.world, ctx.internal, p.team, bs, base, t.tx, t.ty)) {
+        plan.shift();
+        ctx.out.push({ t: 'buildPlace', team: p.team, tx: t.tx, ty: t.ty });
+        emit(ctx.world, ctx.mem, p.team, ctx.mode, 'build', 'wall', t.tx, t.ty);
+        return;
+      }
+      plan.shift();
+    }
+    ctx.out.push({ t: 'buildCancel', team: p.team }); // nu mai e niciun loc sigur: rambursare
+    return;
+  }
+  const avoid = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret' || b.type === 'tesla').map(center);
   const spot = findPlacement(ctx.world, p.team, type, anchor, { avoid });
   if (!spot) return;
   ctx.out.push({ t: 'buildPlace', team: p.team, tx: spot.tx, ty: spot.ty });
@@ -233,6 +255,8 @@ function runEconomy(ctx: Ctx): void {
   else if (!hasFactory) want = 'factory';
   else if (!needHarv && refs < cap) want = 'refinery';
   else if (countType(bs, 'barracks') === 0 && refs >= Math.min(2, cap)) want = 'barracks';
+  else if (countType(bs, 'radar') === 0 && refs >= 2 && p.credits >= BUILDINGS.radar.cost * 1.3) want = 'radar';
+  else if (countType(bs, 'lab') === 0 && countType(bs, 'radar') > 0 && p.credits >= BUILDINGS.lab.cost * 1.3) want = 'lab';
   else if (countType(bs, 'airfield') === 0 && refs >= 2 && p.credits >= BUILDINGS.airfield.cost * 1.5) want = 'airfield';
 
   if (want) {
@@ -261,7 +285,7 @@ function runDefense(ctx: Ctx): void {
 
   // turele proporționale cu mărimea bazei și cu timpul de joc (fără plafon fix mic)
   let body = 0;
-  for (const b of bs) if (b.type !== 'turret' && b.type !== 'rocketTurret') body++;
+  for (const b of bs) if (b.type !== 'turret' && b.type !== 'rocketTurret' && b.type !== 'tesla' && b.type !== 'wall') body++;
   const minutes = world.tick / TICKS_MIN;
   const gunHave = countType(bs, 'turret');
   const aaHave = countType(bs, 'rocketTurret');
@@ -269,11 +293,22 @@ function runDefense(ctx: Ctx): void {
   let aaTarget = Math.min(6, Math.floor(body / 4));
   if (mem.airSeen || minutes >= 5) aaTarget = Math.max(aaTarget, 1);
   const hasFactory = countType(bs, 'factory') > 0;
+  const teslaHave = countType(bs, 'tesla');
+  const teslaTarget = Math.min(4, Math.floor(gunHave / 2));
   if (!p.production.building) {
     let want: BuildingType | null = null;
     if (mem.airSeen && hasFactory && aaHave < aaTarget) want = 'rocketTurret';
+    else if (countType(bs, 'lab') > 0 && gunHave >= 3 && teslaHave < teslaTarget) want = 'tesla'; // centrala se construiește automat dacă lipsește curentul
     else if (gunHave < gunTarget) want = 'turret';
     else if (hasFactory && aaHave < aaTarget) want = 'rocketTurret';
+    else if (gunHave >= 4 && minutes >= 2) {
+      // ziduri la strâmtorile înguste din jurul bazei (planul se reface rar, doar când e gol)
+      if (mem.wallPlan.length === 0 && world.tick - mem.wallPlanTick > 600) {
+        mem.wallPlanTick = world.tick;
+        mem.wallPlan = wallPlan(world, internal, team, bs, base);
+      }
+      if (mem.wallPlan.length > 0) want = 'wall';
+    }
     if (want) startBuilding(ctx, bs, want, base);
   }
 
@@ -389,7 +424,7 @@ function runAttack(ctx: Ctx): void {
     if (em.air > 0) { wBazooka *= 1.5; wRocket *= 1.5; }
   }
   const queues: Array<{ has: boolean; q: Player['production']['units']; mix: Array<[UnitType, number]> }> = [
-    { has: hasFactory, q: p.production.units, mix: [['tank', wTank], ['rocket', wRocket]] },
+    { has: hasFactory, q: p.production.units, mix: countType(bs, 'lab') > 0 ? [['tank', wTank], ['rocket', wRocket], ['heavyTank', 3], ['artillery', 1.5]] : [['tank', wTank], ['rocket', wRocket]] },
     { has: hasBarracks, q: p.production.infantry, mix: [['soldier', wSoldier], ['bazooka', wBazooka]] },
   ];
   for (const { has, q, mix } of queues) {

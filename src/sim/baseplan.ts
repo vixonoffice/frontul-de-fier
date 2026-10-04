@@ -123,7 +123,7 @@ export function dirToEnemy(world: World, team: Team, from: Vec, known: Iterable<
  */
 export function perimeterAnchor(world: World, internal: Internal, team: Team, bs: Building[], base: Vec, known: Iterable<Vec>, side = 0): Vec | null {
   const { w, h, terrain } = world.map;
-  const body = bs.filter((b) => b.type !== 'turret' && b.type !== 'rocketTurret');
+  const body = bs.filter((b) => b.type !== 'turret' && b.type !== 'rocketTurret' && b.type !== 'tesla' && b.type !== 'wall');
   if (body.length === 0) return null;
   let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
   for (const b of body) {
@@ -134,7 +134,7 @@ export function perimeterAnchor(world: World, internal: Internal, team: Team, bs
   minX -= M; minY -= M; maxX += M; maxY += M;
   const reach = reachFromEnemies(world, internal, team);
   const dir = dirToEnemy(world, team, base, known);
-  const turrets = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret').map(center);
+  const turrets = bs.filter((b) => b.type === 'turret' || b.type === 'rocketTurret' || b.type === 'tesla').map(center);
   const refs = bs.filter((b) => b.type === 'refinery').map(center);
   const orePts = oreClusters(world, internal).filter((c) => distCC(base, c) < 24);
   const pts: Array<{ x: number; y: number; nx: number; ny: number }> = [];
@@ -188,4 +188,148 @@ export function ownBuildingsOf(world: World, team: Team): Building[] {
     if (b && b.team === team) out.push(b);
   }
   return out;
+}
+
+// ---------- ziduri la strâmtori (asistent) ----------
+
+const WALL_RADIUS = 16;      // strâmtorile căutate în jurul bazei
+const WALL_MAX_TOTAL = 12;   // câte ziduri proprii cel mult
+
+/** Tile-urile accesibile (teren liber, fără ziduri) din care se pornește un BFS; `extra` = tile-uri închise ipotetic. */
+function sealSafe(world: World, internal: Internal, team: Team, bs: Building[], base: Vec, extra: Set<number>): boolean {
+  void internal;
+  const { w, h, terrain, ore } = world.map;
+  const walls = new Set<number>(extra);
+  for (const b of world.buildings.values()) if (b.type === 'wall') walls.add(b.ty * w + b.tx);
+  const seen = new Uint8Array(w * h);
+  const sx = Math.max(0, Math.min(w - 1, Math.floor(base.x))), sy = Math.max(0, Math.min(h - 1, Math.floor(base.y)));
+  const stack: number[] = [];
+  // pornim de lângă HQ: primul tile liber din jurul centrului
+  outer: for (let r = 0; r < 6; r++) {
+    for (let dy = -r; dy <= r; dy++) for (let dx = -r; dx <= r; dx++) {
+      const x = sx + dx, y = sy + dy;
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const k = y * w + x;
+      if (terrain[k] === TERRAIN_GROUND && !walls.has(k)) { stack.push(k); seen[k] = 1; break outer; }
+    }
+  }
+  if (stack.length === 0) return false;
+  while (stack.length) {
+    const c = stack.pop()!;
+    const cx = c % w, cy = (c / w) | 0;
+    for (const [dx, dy] of DIRS8) {
+      const nx = cx + dx, ny = cy + dy;
+      if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+      const n = ny * w + nx;
+      if (seen[n] || terrain[n] !== TERRAIN_GROUND || walls.has(n)) continue;
+      // fără tăiat colțuri prin ziduri
+      if (dx !== 0 && dy !== 0 && (walls.has(cy * w + nx) || walls.has(ny * w + cx))) continue;
+      seen[n] = 1;
+      stack.push(n);
+    }
+  }
+  const reached = (x: number, y: number): boolean => {
+    // un tile atins în jurul punctului (clădirile stau pe teren, deci vecinătatea lor trebuie atinsă)
+    for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) {
+      const X = Math.floor(x) + dx, Y = Math.floor(y) + dy;
+      if (X >= 0 && Y >= 0 && X < w && Y < h && seen[Y * w + X]) return true;
+    }
+    return false;
+  };
+  for (const b of bs) {
+    if (b.type === 'wall') continue;
+    let ok = false;
+    for (let y = b.ty - 1; y <= b.ty + b.h && !ok; y++) for (let x = b.tx - 1; x <= b.tx + b.w; x++) {
+      if (x >= 0 && y >= 0 && x < w && y < h && seen[y * w + x]) { ok = true; break; }
+    }
+    if (!ok) return false;
+  }
+  for (const c of oreClusters(world, internal)) {
+    if (distCC(base, c) > 24) continue;
+    let any = false;
+    for (const t of c.tiles) if (ore[t] > 0 && seen[t]) { any = true; break; }
+    if (!any && !reached(c.x, c.y)) return false;
+  }
+  // și cel puțin un start inamic rămâne legat de bază
+  let enemyOk = false, hasEnemy = false;
+  world.players.forEach((p, i) => {
+    if (p.team === team || p.defeated) return;
+    const s = world.map.starts[i];
+    if (!s) return;
+    hasEnemy = true;
+    if (reached(s.x, s.y)) enemyOk = true;
+  });
+  return !hasEnemy || enemyOk;
+}
+
+/**
+ * Plan de ziduri: goluri înguste (cel mult 3 tile-uri) între stâncă/apă, la mai puțin de WALL_RADIUS de bază, care continuă
+ * de ambele părți (adică un trecător adevărat). Fiecare gol se acceptă doar dacă baza rămâne legată pe sol de toate clădirile
+ * proprii, de câmpul de minereu și de un inamic (verificat cu BFS, cumulativ).
+ */
+export function wallPlan(world: World, internal: Internal, team: Team, bs: Building[], base: Vec): Array<{ tx: number; ty: number }> {
+  const { w, h, terrain, ore } = world.map;
+  const own = bs.filter((b) => b.type === 'wall').length;
+  if (own >= WALL_MAX_TOTAL) return [];
+  const cls = new Uint8Array(w * h); // 0 liber, 1 dur (stâncă/apă), 2 clădire
+  for (let i = 0; i < cls.length; i++) cls[i] = terrain[i] === TERRAIN_GROUND ? 0 : 1;
+  for (const b of world.buildings.values()) {
+    for (let y = 0; y < b.h; y++) for (let x = 0; x < b.w; x++) {
+      const X = b.tx + x, Y = b.ty + y;
+      if (X >= 0 && Y >= 0 && X < w && Y < h) cls[Y * w + X] = 2;
+    }
+  }
+  const at = (x: number, y: number): number => (x < 0 || y < 0 || x >= w || y >= h ? 1 : cls[y * w + x]);
+  const runs: Array<{ tiles: number[]; d: number }> = [];
+  const seenRun = new Set<string>();
+  const x0 = Math.max(1, Math.floor(base.x - WALL_RADIUS)), x1 = Math.min(w - 2, Math.ceil(base.x + WALL_RADIUS));
+  const y0 = Math.max(1, Math.floor(base.y - WALL_RADIUS)), y1 = Math.min(h - 2, Math.ceil(base.y + WALL_RADIUS));
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      if (at(x, y) !== 0) continue;
+      for (const horiz of [true, false]) {
+        const dx = horiz ? 1 : 0, dy = horiz ? 0 : 1;
+        let a = 0;
+        while (a < 4 && at(x - dx * (a + 1), y - dy * (a + 1)) === 0) a++;
+        let b = 0;
+        while (b < 4 && at(x + dx * (b + 1), y + dy * (b + 1)) === 0) b++;
+        const len = a + b + 1;
+        if (len > 3) continue;
+        if (at(x - dx * (a + 1), y - dy * (a + 1)) !== 1 || at(x + dx * (b + 1), y + dy * (b + 1)) !== 1) continue; // capete: stâncă/apă
+        const tiles: number[] = [];
+        let ok = true;
+        for (let k = -a; k <= b; k++) {
+          const tx = x + dx * k, ty = y + dy * k;
+          if (ore[ty * w + tx] > 0) { ok = false; break; }
+          // trecătoare adevărată: de ambele părți (perpendicular) terenul continuă
+          if (at(tx + dy, ty + dx) === 1 || at(tx - dy, ty - dx) === 1) { ok = false; break; }
+          tiles.push(ty * w + tx);
+        }
+        if (!ok) continue;
+        const key = (horiz ? 'h' : 'v') + tiles[0] + ':' + len;
+        if (seenRun.has(key)) continue;
+        seenRun.add(key);
+        const cx = x + dx * ((b - a) / 2), cy = y + dy * ((b - a) / 2);
+        const d = distCC(base, { x: cx, y: cy });
+        if (d <= WALL_RADIUS) runs.push({ tiles, d });
+      }
+    }
+  }
+  runs.sort((p, q) => p.d - q.d || p.tiles[0] - q.tiles[0]);
+  const accepted = new Set<number>();
+  const plan: Array<{ tx: number; ty: number }> = [];
+  for (const r of runs) {
+    if (own + plan.length + r.tiles.length > WALL_MAX_TOTAL) continue;
+    const trial = new Set<number>(accepted);
+    for (const t of r.tiles) trial.add(t);
+    if (!sealSafe(world, internal, team, bs, base, trial)) continue;
+    for (const t of r.tiles) { accepted.add(t); plan.push({ tx: t % w, ty: (t / w) | 0 }); }
+    if (plan.length >= 6) break;
+  }
+  return plan;
+}
+
+/** Verifică încă o dată (cu starea curentă a lumii) că închiderea acestui tile nu sigilează baza. */
+export function wallTileSafe(world: World, internal: Internal, team: Team, bs: Building[], base: Vec, tx: number, ty: number): boolean {
+  return sealSafe(world, internal, team, bs, base, new Set<number>([ty * world.map.w + tx]));
 }
