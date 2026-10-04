@@ -5,11 +5,11 @@ import { BUILDINGS } from '../data/buildings';
 import { UNITS, MAX_QUEUE } from '../data/units';
 
 /** Ordinea cardurilor în tab-ul de clădiri. */
-export const BUILD_LIST: BuildingType[] = ['refinery', 'factory', 'barracks', 'turret', 'rocketTurret', 'airfield'];
+export const BUILD_LIST: BuildingType[] = ['refinery', 'power', 'factory', 'barracks', 'turret', 'rocketTurret', 'airfield'];
 
 /** Unitățile, grupate după clădirea care le face. */
 export const UNIT_GROUPS: Record<ProducerType, UnitType[]> = {
-  factory: ['tank', 'rocket', 'harvester'],
+  factory: ['tank', 'rocket', 'harvester', 'warHarvester'],
   barracks: ['soldier', 'bazooka'],
   airfield: ['bomber'],
 };
@@ -40,8 +40,13 @@ export function canShoot(t: UnitType): boolean {
   return UNITS[t].weapon !== null && t !== 'bomber';
 }
 
-const SHORT: Partial<Record<BuildingType | UnitType, string>> = { rocketTurret: 'Antiaerian', refinery: 'Rafinărie', bomber: 'Bombardier' };
+const SHORT: Partial<Record<BuildingType | UnitType, string>> = { rocketTurret: 'Antiaerian', refinery: 'Rafinărie', bomber: 'Bombardier', warHarvester: 'Blindat' };
 /** Nume scurt, ca să încapă pe un pătrat de tavă. */
 export function shortName(t: BuildingType | UnitType): string {
   return SHORT[t] ?? nameOf(t);
+}
+
+/** Unități care pot aduna minereu (recoltorul și cel blindat). */
+export function canHarvest(t: UnitType): boolean {
+  return t === 'harvester' || t === 'warHarvester';
 }

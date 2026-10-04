@@ -32,3 +32,22 @@ Marimea totala `public/models`: ~3 MB.
 Placeholderele din `src/render/models.ts` (se vad pana se incarca GLB-ul sau daca un fisier lipseste), rastelul de rachete al lansatorului,
 tubul bazookei, pista aerodromului, platforma / chenarul / steagul de echipa al cladirilor, inelul de echipa de sub unitati,
 bombele, umbra bombardierului.
+
+## Audio
+
+Muzica e in `public/audio/` (se incarca prin URL relativ `audio/<fisier>`, ca site-ul sa mearga si intr-un sub-folder). Doar CC0; licenta a fost
+verificata pe pagina fiecarui fisier (OpenGameArt, eticheta "CC0"). Piesele au fost reincodate in OGG Vorbis (q3, stereo) cu ffmpeg, fara taiere.
+
+| Fisier | Rol | Titlu | Autor | Licenta | Sursa |
+|---|---|---|---|---|---|
+| calm.ogg | muzica de constructie (calma, sci-fi intunecat) | Bleak Terminal (theme) | Ruskerdax | CC0 1.0 | https://opengameart.org/content/bleak-terminal |
+| tense.ogg | lupta / baza atacata (orchestra, viori si corni) | Battle Theme A (redone) | cynicmusic / The Cynic Project | CC0 1.0 | https://opengameart.org/content/battle-theme-a |
+
+Marime totala `public/audio`: ~2,7 MB. Alte piese cercetate si ocolite: "Synth Wave" (Alex McCulloch) cere mentionarea autorului in
+textul paginii, desi e etichetata CC0; "Cybersecutor" nu are autor indicat pe pagina; freepd.com e inchis.
+
+Efectele sonore NU sunt fisiere: sunt sintetizate in `src/ui/audio.ts` cu WebAudio (tun, racheta, rafala de pusca, bomba, explozii, plasare,
+vanzare, unitate gata pe tip de producator, avansare, strivire, curent insuficient, numaratoare de bani, interfata). Confirmarile radio la
+ordine sunt ciripituri sintetizate cu zgomot filtrat, fara voce.
+
+Fara fisierele din `public/audio` (de exemplu in varianta intr-un singur fisier HTML) muzica lipseste in tacere, fara erori; efectele raman.

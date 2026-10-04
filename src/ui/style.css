@@ -564,3 +564,53 @@ svg.ic .cutf { fill: var(--cut); stroke: none; }
 }
 
 #guardMarks { position: absolute; inset: 0; pointer-events: none; z-index: 14; overflow: hidden; }
+
+
+/* ---------- runda 5: bara de sus cu curent / jucători / sunet, setări de meci, glisoare ---------- */
+#topbar { gap: 4px; padding: 0 3px 0 8px; }
+.tb-stat { gap: 4px; }
+.tb-stat svg.ic { width: 20px; height: 20px; }
+.tb-stat b { font-size: 21px; }
+#tb-credits b { font-size: 22px; }
+.tb-power { background: none; border: 0; padding: 0 4px; min-height: 44px; color: var(--text); cursor: pointer; border-radius: 6px; }
+.tb-power b { font-size: 15px; color: var(--ok); }
+.tb-power svg.ic { width: 17px; height: 17px; color: var(--ok); }
+.tb-power.idle b, .tb-power.idle svg.ic { color: var(--mut-2); }
+.tb-power.low b, .tb-power.low svg.ic { color: var(--red); }
+.tb-power.low { animation: blink .8s steps(2) infinite; background: rgba(236,90,64,.18); }
+.tb-players { display: flex; align-items: center; justify-content: center; gap: 4px; width: 44px; height: 44px; padding: 0; background: none; border: 0; cursor: pointer; }
+.tb-players i { width: 10px; height: 10px; border-radius: 50%; background: var(--c); border: 1px solid #000; box-shadow: 0 0 5px var(--c); }
+.tb-players i.dead { background: #14160f; box-shadow: none; opacity: .7; }
+#muteBtn.muted svg.ic { color: var(--red); }
+#topbar .btn-sq { width: 44px; }
+.ci-rank { display: inline-flex; align-items: center; gap: 1px; color: var(--amber-l); font-weight: 800; margin-left: 4px; }
+.ci-rank svg.ic { width: 14px; height: 14px; color: var(--amber-l); }
+.ci-kills { color: var(--mut); font-weight: 600; margin-left: 6px; }
+.seg { display: flex; gap: 6px; }
+.seg.wrap { flex-wrap: wrap; }
+.seg-btn {
+  flex: 1 1 0; min-width: 0; min-height: 46px; padding: 0 4px; cursor: pointer; touch-action: manipulation;
+  font: 800 17px var(--display); letter-spacing: .04em; text-transform: uppercase; color: var(--mut);
+  background: linear-gradient(180deg, #2f3427, #22261d); border: 2px solid #0b0c08; border-radius: 6px; box-shadow: 0 3px 0 #0b0c08;
+  transition: transform .05s, box-shadow .05s;
+}
+.seg.wrap .seg-btn { flex: 1 1 30%; }
+.seg-btn:active { transform: translateY(3px); box-shadow: 0 0 0 #0b0c08; }
+.seg-btn.sel { color: var(--amber-ink); background: linear-gradient(180deg, #ffc43f, #d58c0a); border-color: #3b2603; }
+.screen-card.setup { gap: 8px; padding: 18px 16px 16px; }
+.screen-card.setup h1 { font-size: 40px; margin-top: 4px; }
+.screen-card.setup .field-label { margin: 2px 0 -2px; font-size: 15px; }
+.screen-card.setup .switch { min-height: 46px; }
+.seed-line { text-align: center; color: var(--mut); font: 600 14px var(--font); }
+.end-row { display: flex; gap: 8px; }
+.end-row .btn-mil { flex: 1; font-size: 15px; padding: 0 6px; }
+.slider-row { display: grid; grid-template-columns: 96px 1fr 44px; align-items: center; gap: 8px; min-height: 48px; font: 700 15px var(--font); }
+.slider-row b { text-align: right; color: var(--amber-l); font-size: 14px; }
+.slider-row input[type=range] { -webkit-appearance: none; appearance: none; width: 100%; height: 44px; background: transparent; margin: 0; touch-action: pan-y; }
+.slider-row input[type=range]::-webkit-slider-runnable-track { height: 12px; border-radius: 6px; background: #0b0c08; border: 1px solid #3c4230; }
+.slider-row input[type=range]::-moz-range-track { height: 12px; border-radius: 6px; background: #0b0c08; border: 1px solid #3c4230; }
+.slider-row input[type=range]::-webkit-slider-thumb { -webkit-appearance: none; width: 32px; height: 32px; margin-top: -11px; border-radius: 50%; background: linear-gradient(180deg, #ffc43f, #d58c0a); border: 2px solid #3b2603; box-shadow: 0 2px 0 #3b2603; }
+.slider-row input[type=range]::-moz-range-thumb { width: 28px; height: 28px; border-radius: 50%; background: #ffc43f; border: 2px solid #3b2603; }
+@media (max-height: 500px) { .screen-card.setup h1 { font-size: 30px; } .seg-btn { min-height: 44px; } }
+
+.seg.wrap .seg-btn { font-size: 15px; letter-spacing: .02em; }

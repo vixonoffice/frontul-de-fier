@@ -2,7 +2,7 @@ import type { UiContext, UiModule } from './context';
 import { el, clamp } from './dom';
 import type { BuildingType, EntityId, UnitType, Vec } from '../sim/types';
 import { BUILDINGS } from '../data/buildings';
-import { canShoot } from './buildData';
+import { canShoot, canHarvest } from './buildData';
 
 const DRAG_THRESHOLD = 6;
 const LONG_PRESS_MS = 350;
@@ -139,7 +139,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
     if (!worldPt || !sel.length) return;
     const team = ctx.localTeam;
     const bombers = unitsOf(sel, (t) => t === 'bomber');
-    const harvesters = unitsOf(sel, (t) => t === 'harvester');
+    const harvesters = unitsOf(sel, (t) => canHarvest(t));
     const shooters = unitsOf(sel, (t) => canShoot(t));
     if (entityId !== null && isEnemy(entityId)) {
       if (shooters.length) ctx.queueCommand({ t: 'attack', team, ids: shooters, targetId: entityId });
@@ -177,7 +177,7 @@ export function initInput(ctx: UiContext, canvas: HTMLCanvasElement): UiModule {
       const rest = sel.filter((id) => !ids.includes(id));
       if (rest.length) ctx.queueCommand({ t: 'move', team, ids: rest, x: worldPt.x, y: worldPt.y });
     } else if (tool === 'harvest') {
-      const ids = unitsOf(sel, (t) => t === 'harvester');
+      const ids = unitsOf(sel, (t) => canHarvest(t));
       if (!oreAt(worldPt)) ctx.toast('Aici nu e minereu. Caută zona aurie de pe hartă.', 'bad');
       ctx.queueCommand({ t: 'harvest', team, ids, x: worldPt.x, y: worldPt.y });
       ctx.renderer.pulse(worldPt, 'move');

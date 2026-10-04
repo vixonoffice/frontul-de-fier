@@ -114,6 +114,13 @@ export function initTips(ctx: UiContext): UiModule {
       target: '#dk-assist',
     },
     {
+      id: 'power',
+      text: 'Curent insuficient! Construiește o Centrală (Clădiri), altfel producția și turelele merg la jumătate.',
+      ready: () => ctx.lowPowerSeen,
+      done: () => !(me().power && me().power.used > me().power.made),
+      target: '#tb-power',
+    },
+    {
       id: 'harvesters',
       text: 'Recoltoare degeaba? Selectează-le, „Adună minereu”, atinge aurul.',
       ready: () => seen.has('assist') && ownUnits((t) => t === 'harvester').length > 0,

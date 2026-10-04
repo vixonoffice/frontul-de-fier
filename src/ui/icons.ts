@@ -25,6 +25,12 @@ const ICONS: Record<string, string> = {
   // ---------- interfață ----------
   assist: W(`<path d="M24 3 L30 17 L45 18.5 L34 28.5 L37 43 L24 35.5 L11 43 L14 28.5 L3 18.5 L18 17 Z" fill="currentColor"/><circle cx="24" cy="24" r="5" class="cutf"/>`),
   shield: W(`<path d="M24 3 L42 9 V23 Q42 37 24 45 Q6 37 6 23 V9 Z" fill="currentColor"/><path d="M24 12 V36 M13 20 H35" class="cut"/>`),
+  bolt: W(`<path d="M28 2 L10 26 H22 L18 46 L38 20 H25 Z" fill="currentColor"/>`),
+  speaker: W(`<path d="M5 18 H14 L26 8 V40 L14 30 H5 Z" fill="currentColor"/><path d="M32 16 Q38 24 32 32 M37 10 Q47 24 37 38" fill="none" stroke="currentColor" stroke-width="4" stroke-linecap="round"/>`),
+  speakerOff: W(`<path d="M5 18 H14 L26 8 V40 L14 30 H5 Z" fill="currentColor"/><path d="M33 17 L45 31 M45 17 L33 31" fill="none" stroke="currentColor" stroke-width="4.5" stroke-linecap="round"/>`),
+  chevron: W(`<path d="M6 30 L24 14 L42 30 L42 38 L24 22 L6 38 Z" fill="currentColor"/>`),
+  power: W(`<rect x="6" y="26" width="36" height="16" fill="currentColor"/><rect x="10" y="12" width="6" height="14" fill="currentColor"/><rect x="32" y="12" width="6" height="14" fill="currentColor"/><path d="M26 6 L17 22 H24 L21 32 L31 16 H24 Z" class="cutf"/>`),
+  warHarvester: W(`<rect x="5" y="33" width="38" height="8" rx="4" fill="currentColor"/><path d="M4 33 V23 H16 V33 Z" fill="currentColor"/><rect x="6.5" y="25" width="7" height="4.5" rx="1" class="cutf"/><path d="M16 33 V20 H44 V33 Z" fill="currentColor"/><circle cx="30" cy="16" r="5" fill="currentColor"/><rect x="32" y="13.5" width="14" height="3.4" rx="1" fill="currentColor"/><path d="M20 27 H40" class="cut"/>`),
   coin: W(`<circle cx="24" cy="24" r="19" fill="currentColor"/><circle cx="24" cy="24" r="13" class="cut"/><path d="M24 14 V34 M19 19 Q19 16 24 16 Q29 16 29 20 Q29 24 24 24 Q19 24 19 28 Q19 32 24 32 Q29 32 29 29" class="cut"/>`),
   ore: W(`<path d="M24 3 L40 14 L35 40 L13 40 L8 14 Z" fill="currentColor"/><path d="M24 3 L24 40 M8 14 L40 14 M13 40 L24 24 L35 40" class="cut"/>`),
   army: W(`<circle cx="15" cy="13" r="6" fill="currentColor"/><circle cx="33" cy="13" r="6" fill="currentColor"/><path d="M3 38 Q3 22 15 22 Q27 22 27 38 Z" fill="currentColor"/><path d="M21 38 Q21 22 33 22 Q45 22 45 38 Z" fill="currentColor" opacity=".8"/>`),

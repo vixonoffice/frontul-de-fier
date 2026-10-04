@@ -224,8 +224,8 @@ export function initDock(ctx: UiContext): UiModule {
     const b = el('button', { className: 'atile', attrs: { type: 'button', role: 'switch', 'data-mode': a.mode }, parent: grids.get('assist')! }) as HTMLButtonElement;
     b.innerHTML = `<span class="a-ic">${iconSvg(a.icon)}</span><span class="a-txt"><b>${a.name}</b><span class="a-desc">${a.desc}</span></span><i class="a-state"></i>`;
     b.addEventListener('click', () => {
-      ctx.sfx('click');
       const as = localPlayer().assist;
+      ctx.sfx(as?.[a.mode] ? 'off' : 'on');
       const now = !!as?.[a.mode];
       ctx.queueCommand({ t: 'assist', team: ctx.localTeam, mode: a.mode, on: !now });
     });
@@ -322,9 +322,9 @@ export function initDock(ctx: UiContext): UiModule {
     const btn = el('button', { className: 'dk', attrs: { type: 'button', id: `dk-${id}`, 'aria-label': label }, parent: dock }) as HTMLButtonElement;
     btn.innerHTML = `${iconSvg(icon)}<span class="dk-l">${label}</span><em class="dk-badge"></em><i class="dk-prog"><u></u></i>`;
     btn.addEventListener('click', () => {
-      ctx.sfx('click');
       hidePop();
       onClick();
+      if (id === 'home') ctx.sfx('click');
     });
     dbtns.set(id, { btn, badge: btn.querySelector('.dk-badge') as HTMLElement, prog: btn.querySelector('.dk-prog u') as HTMLElement });
   }
@@ -371,6 +371,7 @@ export function initDock(ctx: UiContext): UiModule {
   }
 
   let lastTabKey = '';
+  let wasTrayOpen = false;
 
   function update() {
     const player = localPlayer();
@@ -383,6 +384,10 @@ export function initDock(ctx: UiContext): UiModule {
     if (ctx.placing && !(slot && slot.ready && slot.type === ctx.placing)) ctx.cancelPlacing();
     if (!ctx.started || ctx.gameOver) ctx.closeTray();
 
+    if (!!ctx.trayTab !== wasTrayOpen) {
+      wasTrayOpen = !!ctx.trayTab;
+      ctx.sfx(wasTrayOpen ? 'open' : 'close');
+    }
     root.classList.toggle('tray-open', !!ctx.trayTab);
     for (const t of TABS) grids.get(t)!.style.display = ctx.trayTab === t ? '' : 'none';
     if (ctx.trayTab && lastTabKey !== ctx.trayTab) {
