@@ -67,6 +67,7 @@ export interface Projectile {
   fromX: number; fromY: number;
   targetId: EntityId;
   tx: number; ty: number;        // ultima poziție cunoscută a țintei
+  z?: number;                    // doar bombe: înălțimea curentă de cădere în tile-uri (scade spre 0)
 }
 
 export type SimEvent =

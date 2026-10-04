@@ -1,12 +1,15 @@
 // Recoltare (mașină de stări pe recoltor) și producție (clădiri + coadă de unități).
-import type { Building, BuildingType, Team, Unit, UnitType, Vec, World } from './types';
+import type { Building, BuildingType, Player, ProducerType, Team, Unit, UnitType, Vec, World } from './types';
 import { TERRAIN_GROUND } from './types';
-import { UNITS, STARTING_CREDITS } from '../data/units';
+import { UNITS, STARTING_CREDITS, BOMBER_PAYLOAD, BOMBERS_PER_AIRFIELD } from '../data/units';
 import { BUILDINGS, MAX_BUILD_DISTANCE } from '../data/buildings';
 import type { Internal } from './internal';
 import { getHarvestState } from './internal';
 import { findPath, nearestFree } from './path';
 import { sortedUnitIds, teamBuildingsOfType, distCC } from './entities';
+import { bomberSpawnSpot, isAir, parkBomberAt } from './air';
+import { HARVEST_CALM_TICKS } from './movement';
+import { getNav } from './internal';
 
 function idx(w: number, x: number, y: number): number { return y * w + x; }
 
@@ -60,10 +63,43 @@ function releaseReservation(internal: Internal, tile: number): void {
   else internal.oreReserved.set(tile, cur - 1);
 }
 
+const HARVEST_IDLE_RESUME = 3; // secunde de inactivitate (fără daună) după care recoltorul reia singur
+
+/** Comanda `harvest`: recoltorul merge la minereul cel mai apropiat de (x,y) și continuă bucla normală de acolo. */
+export function commandHarvest(world: World, internal: Internal, blocked: Uint8Array, unit: Unit, x: number, y: number): void {
+  const { w, h } = world.map;
+  const hs = getHarvestState(internal, unit.id);
+  releaseReservation(internal, hs.oreTile);
+  hs.oreTile = -1;
+  hs.refineryId = null;
+  hs.idle = 0;
+  const nav = getNav(internal, unit.id);
+  nav.flow = null;
+  nav.engagedTarget = null;
+  unit.path = [];
+  const sx = Math.max(0, Math.min(w - 1, Math.floor(x)));
+  const sy = Math.max(0, Math.min(h - 1, Math.floor(y)));
+  const tile = findOreTile(world, internal, blocked, sx, sy);
+  if (tile < 0) { unit.order = { kind: 'harvest', phase: 'seek' }; return; }
+  hs.oreTile = tile;
+  internal.oreReserved.set(tile, (internal.oreReserved.get(tile) ?? 0) + 1);
+  const p = findPath(blocked, w, h, Math.max(0, Math.min(w - 1, Math.floor(unit.x))), Math.max(0, Math.min(h - 1, Math.floor(unit.y))), tile % w, (tile / w) | 0);
+  unit.path = p ?? [];
+  unit.order = { kind: 'harvest', phase: 'toOre' };
+}
+
 export function updateHarvester(world: World, internal: Internal, blocked: Uint8Array, unit: Unit, dt: number): void {
-  if (unit.order.kind !== 'harvest') return;
   const def = UNITS.harvester;
   const hs = getHarvestState(internal, unit.id);
+  if (unit.order.kind === 'idle') {
+    // watchdog: un recoltor inactiv și nebătut reia singur recoltarea (nu rămâne blocat definitiv)
+    const calm = world.tick - (internal.lastDamageTick.get(unit.id) ?? -1e9) >= HARVEST_CALM_TICKS;
+    hs.idle = calm ? hs.idle + dt : 0;
+    if (hs.idle >= HARVEST_IDLE_RESUME) { hs.idle = 0; unit.order = { kind: 'harvest', phase: 'seek' }; }
+    return;
+  }
+  if (unit.order.kind !== 'harvest') return;
+  hs.idle = 0;
   const { w, h, ore } = world.map;
 
   switch (unit.order.phase) {
@@ -172,6 +208,7 @@ export function canPlaceBuilding(world: World, team: Team, type: BuildingType, t
         if (X >= b.tx && X < b.tx + b.w && Y >= b.ty && Y < b.ty + b.h) return false;
       }
       for (const u of world.units.values()) {
+        if (isAir(u)) continue; // avioanele zboară peste
         if (Math.floor(u.x) === X && Math.floor(u.y) === Y) return false;
       }
     }
@@ -189,7 +226,7 @@ function nudgeOwnUnitsOffFootprint(world: World, blocked: Uint8Array, b: Buildin
   const ids = sortedUnitIds(world);
   for (const id of ids) {
     const u = world.units.get(id);
-    if (!u || u.team !== b.team) continue;
+    if (!u || u.team !== b.team || isAir(u)) continue;
     const ux = Math.floor(u.x), uy = Math.floor(u.y);
     if (ux >= b.tx && ux < b.tx + b.w && uy >= b.ty && uy < b.ty + b.h) {
       const free = nearestFree(blocked, world.map.w, world.map.h, ux, uy, 6);
@@ -220,10 +257,10 @@ export function spawnUnit(world: World, _internal: Internal, team: Team, type: U
     id: world.nextId++, kind: 'unit', type, team, x, y,
     angle: 0, turretAngle: 0, hp: UNITS[type].hp, maxHp: UNITS[type].hp,
     order: type === 'harvester' ? { kind: 'harvest', phase: 'seek' } : { kind: 'idle' },
-    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: 0,
+    path: [], carry: 0, cooldown: 0, lastFireTick: -1, moving: false, alt: 0, ammo: type === 'bomber' ? BOMBER_PAYLOAD : 0,
   };
   world.units.set(u.id, u);
-  if (type !== 'harvester' && rally) {
+  if (type !== 'harvester' && rally && UNITS[type].domain === 'ground') {
     u.order = { kind: 'move', x: rally.x, y: rally.y };
   }
   return u;
@@ -233,6 +270,7 @@ export function handleBuildStart(world: World, team: Team, type: BuildingType): 
   const p = world.players[team];
   const def = BUILDINGS[type];
   if (!def.buildable || p.production.building || p.credits < def.cost) return;
+  if (def.requires && !hasBuilding(world, team, def.requires)) return;
   p.credits -= def.cost;
   p.production.building = { type, progress: 0, ready: false };
 }
@@ -256,21 +294,44 @@ export function handleBuildPlace(world: World, internal: Internal, blocked: Uint
 
 const MAX_QUEUE = 5;
 
+function hasBuilding(world: World, team: Team, type: BuildingType): boolean {
+  for (const b of world.buildings.values()) if (b.team === team && b.type === type) return true;
+  return false;
+}
+
+type Queue = Player['production']['units'];
+
+/** Coada de producție corespunzătoare clădirii care produce unitatea. */
+function queueFor(p: Player, producer: ProducerType): Queue {
+  return producer === 'factory' ? p.production.units : producer === 'barracks' ? p.production.infantry : p.production.air;
+}
+
+/** Bombardiere permise: BOMBERS_PER_AIRFIELD per aerodrom propriu (vii + în coadă). */
+export function bomberCapReached(world: World, team: Team): boolean {
+  let airfields = 0;
+  for (const b of world.buildings.values()) if (b.team === team && b.type === 'airfield') airfields++;
+  let n = world.players[team].production.air.length;
+  for (const u of world.units.values()) if (u.team === team && u.type === 'bomber') n++;
+  return n >= airfields * BOMBERS_PER_AIRFIELD;
+}
+
 export function handleTrain(world: World, team: Team, type: UnitType): void {
   const p = world.players[team];
   const def = UNITS[type];
-  const hasFactory = [...world.buildings.values()].some((b) => b.team === team && b.type === 'factory');
-  if (!hasFactory || p.credits < def.cost || p.production.units.length >= MAX_QUEUE) return;
+  const queue = queueFor(p, def.producedAt);
+  if (!hasBuilding(world, team, def.producedAt) || p.credits < def.cost || queue.length >= MAX_QUEUE) return;
+  if (type === 'bomber' && bomberCapReached(world, team)) return;
   p.credits -= def.cost;
-  p.production.units.push({ type, progress: 0, ready: false });
+  queue.push({ type, progress: 0, ready: false });
 }
 
 export function handleTrainCancel(world: World, team: Team, type: UnitType): void {
   const p = world.players[team];
-  for (let i = p.production.units.length - 1; i >= 0; i--) {
-    if (p.production.units[i].type === type) {
+  const queue = queueFor(p, UNITS[type].producedAt);
+  for (let i = queue.length - 1; i >= 0; i--) {
+    if (queue[i].type === type) {
       p.credits += UNITS[type].cost;
-      p.production.units.splice(i, 1);
+      queue.splice(i, 1);
       return;
     }
   }
@@ -292,18 +353,32 @@ export function updateProduction(world: World, internal: Internal, blocked: Uint
         world.events.push({ type: 'buildingReady', team: p.team, building: slot.type });
       }
     }
-    const factory = [...world.buildings.values()].find((b) => b.team === p.team && b.type === 'factory');
-    if (factory && p.production.units.length > 0) {
-      const head = p.production.units[0];
+    // trei cozi paralele: fabrică (vehicule), cazarmă (infanterie), aerodrom (avioane)
+    const producers: ProducerType[] = ['factory', 'barracks', 'airfield'];
+    for (const kind of producers) {
+      const queue = queueFor(p, kind);
+      if (queue.length === 0) continue;
+      let prod: Building | null = null;
+      for (const b of world.buildings.values()) if (b.team === p.team && b.type === kind) { prod = b; break; }
+      if (!prod) continue;
+      const head = queue[0];
       head.progress += dt / UNITS[head.type].buildTime;
-      if (head.progress >= 1) {
-        p.production.units.shift();
-        const exitDock = { x: factory.tx + factory.w / 2, y: factory.ty + factory.h + 0.5 };
-        const free = nearestFree(blocked, world.map.w, world.map.h, Math.floor(exitDock.x), Math.floor(exitDock.y), 5) ?? { x: Math.floor(exitDock.x), y: Math.floor(exitDock.y) };
-        const rally = p.production.rally ?? { x: exitDock.x, y: exitDock.y + 2.5 };
-        const u = spawnUnit(world, internal, p.team, head.type, free.x + 0.5, free.y + 0.5, head.type === 'harvester' ? null : rally);
+      if (head.progress < 1) continue;
+      if (kind === 'airfield') {
+        const spot = bomberSpawnSpot(world, internal, p.team);
+        if (!spot) { head.progress = 1; continue; } // aerodrom plin: așteaptă un loc
+        queue.shift();
+        const u = spawnUnit(world, internal, p.team, head.type, 0, 0, null);
+        parkBomberAt(internal, u, spot.b, spot.spot);
         world.events.push({ type: 'unitReady', team: p.team, id: u.id, unit: head.type });
+        continue;
       }
+      queue.shift();
+      const exitDock = { x: prod.tx + prod.w / 2, y: prod.ty + prod.h + 0.5 };
+      const free = nearestFree(blocked, world.map.w, world.map.h, Math.floor(exitDock.x), Math.floor(exitDock.y), 5) ?? { x: Math.floor(exitDock.x), y: Math.floor(exitDock.y) };
+      const rally = p.production.rally ?? { x: exitDock.x, y: exitDock.y + 2.5 };
+      const u = spawnUnit(world, internal, p.team, head.type, free.x + 0.5, free.y + 0.5, head.type === 'harvester' ? null : rally);
+      world.events.push({ type: 'unitReady', team: p.team, id: u.id, unit: head.type });
     }
   }
 }

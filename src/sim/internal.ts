@@ -10,6 +10,19 @@ export interface HarvestState {
   oreTile: number;              // index în world.map.ore, -1 = niciunul
   refineryId: EntityId | null;
   timer: number;                // secunde rămase până la următorul ciclu (minare/descărcare/așteptare)
+  idle: number;                 // secunde petrecute inactiv (idle) fără daună; la prag recoltorul reia singur
+}
+
+/** Starea de zbor a unui bombardier (în afara contractului). */
+export interface BomberState {
+  airfieldId: EntityId | null;  // aerodromul „de acasă” (loc de parcare rezervat)
+  spot: number;                 // indexul locului de parcare
+  parked: boolean;              // la sol, pe aerodrom
+  rearm: number;                // secunde până la reîncărcare completă (cât timp e parcat)
+  dropTimer: number;            // secunde până la următoarea bombă
+  dropping: boolean;            // a început lansarea pe linia de zbor
+  runX: number; runY: number;   // punctul vizat al bombardamentului
+  loiter: number;               // unghiul de rotire când n-are aerodrom
 }
 
 export interface UnitNav {
@@ -26,6 +39,8 @@ export interface AIMemory {
   waveNumber: number;
   scoutTimer: number;
   knownEnemyBuildings: Map<EntityId, { x: number; y: number }>;
+  airThreat: boolean;           // a văzut aerodrom sau bombardiere inamice
+  bombTimer: number;            // secunde până la următorul raid aerian
 }
 
 export interface Internal {
@@ -35,6 +50,8 @@ export interface Internal {
   ai: Map<Team, AIMemory>;
   lastUnderAttackTick: Map<Team, number>;
   projectileWeapon: Map<EntityId, WeaponDef>; // arma care a lansat proiectilul (daună/splash reale)
+  bomber: Map<EntityId, BomberState>;
+  lastDamageTick: Map<EntityId, number>;      // ultimul tick în care unitatea a primit daună
   nextGroupMoveSeq: number;
 }
 
@@ -50,6 +67,8 @@ export function getInternal(world: object): Internal {
       ai: new Map(),
       lastUnderAttackTick: new Map(),
       projectileWeapon: new Map(),
+      bomber: new Map(),
+      lastDamageTick: new Map(),
       nextGroupMoveSeq: 0,
     };
     registry.set(world, state);
@@ -59,7 +78,7 @@ export function getInternal(world: object): Internal {
 
 export function getHarvestState(internal: Internal, id: EntityId): HarvestState {
   let s = internal.harvest.get(id);
-  if (!s) { s = { oreTile: -1, refineryId: null, timer: 0 }; internal.harvest.set(id, s); }
+  if (!s) { s = { oreTile: -1, refineryId: null, timer: 0, idle: 0 }; internal.harvest.set(id, s); }
   return s;
 }
 
@@ -72,8 +91,17 @@ export function getNav(internal: Internal, id: EntityId): UnitNav {
 export function getAIMemory(internal: Internal, team: Team): AIMemory {
   let m = internal.ai.get(team);
   if (!m) {
-    m = { decisionTimer: 0, waveTimer: 0, waveNumber: 0, scoutTimer: 0, knownEnemyBuildings: new Map() };
+    m = { decisionTimer: 0, waveTimer: 0, waveNumber: 0, scoutTimer: 0, knownEnemyBuildings: new Map(), airThreat: false, bombTimer: 30 };
     internal.ai.set(team, m);
   }
   return m;
+}
+
+export function getBomberState(internal: Internal, id: EntityId): BomberState {
+  let s = internal.bomber.get(id);
+  if (!s) {
+    s = { airfieldId: null, spot: 0, parked: false, rearm: 0, dropTimer: 0, dropping: false, runX: 0, runY: 0, loiter: 0 };
+    internal.bomber.set(id, s);
+  }
+  return s;
 }
