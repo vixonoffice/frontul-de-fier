@@ -135,7 +135,7 @@ export const UNITS: Record<UnitType, UnitDef> = {
   },
   bomber: {
     type: 'bomber', name: 'Bombardier',
-    hp: 180, speed: 5.5, turnRate: 2.4, turretTurnRate: 0,
+    hp: 260, speed: 5.5, turnRate: 2.4, turretTurnRate: 0,
     sight: 7, radius: 0.5,
     cost: 1400, buildTime: 14,
     armor: 'aircraft', weapon: BOMB,
