@@ -121,6 +121,7 @@ export interface Player {
   difficulty: Difficulty;
   assist: AssistState;
   power: { made: number; used: number }; // curent produs / consumat; sub necesar = producție și turele mai lente
+  radar?: boolean;               // true cât timp are un radar propriu și nu e în lipsă de curent (UI: minihartă)
   production: Production;
   defeated: boolean;
 }

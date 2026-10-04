@@ -173,12 +173,24 @@ function applyCommand(world: World, cmd: Command, blocked: Uint8Array, fromAssis
     }
     case 'buildStart':
       handleBuildStart(world, cmd.team, cmd.building);
+      // lanț de ziduri: după fiecare zid plasat începe singur următorul (nu și pentru comenzile asistentului)
+      if (!fromAssist) {
+        if (cmd.building === 'wall' && world.players[cmd.team].production.building?.type === 'wall') internal.wallChain.set(cmd.team, true);
+        else internal.wallChain.delete(cmd.team);
+      }
       break;
-    case 'buildPlace':
+    case 'buildPlace': {
+      const before = world.players[cmd.team].production.building?.type;
       handleBuildPlace(world, internal, blocked, cmd.team, cmd.tx, cmd.ty);
+      if (before === 'wall' && !world.players[cmd.team].production.building && internal.wallChain.get(cmd.team)) {
+        if (world.players[cmd.team].credits >= BUILDINGS.wall.cost) handleBuildStart(world, cmd.team, 'wall');
+        else internal.wallChain.delete(cmd.team);
+      }
       break;
+    }
     case 'buildCancel':
       handleBuildCancel(world, cmd.team);
+      internal.wallChain.delete(cmd.team);
       break;
     case 'train':
       handleTrain(world, cmd.team, cmd.unit, cmd.count ?? 1);
@@ -225,7 +237,7 @@ function checkVictory(world: World): void {
     if (p.defeated) continue;
     let hasBuilding = false;
     for (const b of world.buildings.values()) {
-      if (b.team === p.team) { hasBuilding = true; break; }
+      if (b.team === p.team && b.type !== 'wall') { hasBuilding = true; break; } // zidurile nu țin un jucător în viață
     }
     if (!hasBuilding) {
       p.defeated = true;
@@ -331,6 +343,7 @@ export function hash(world: World): number {
   }
   for (const p of world.players) {
     h = mix(h, Math.round(p.credits * 1000));
+    h = mix(h, p.radar ? 1 : 0);
     h = mix(h, Math.round(p.power.made) * 1000 + Math.round(p.power.used));
     h = mix(h, p.production.units.length * 100 + p.production.infantry.length * 10 + p.production.air.length);
     h = mix(h, (p.assist.economy ? 1 : 0) | (p.assist.defense ? 2 : 0) | (p.assist.attack ? 4 : 0) | (p.assist.allIn ? 8 : 0));
