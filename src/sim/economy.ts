@@ -272,7 +272,7 @@ export function handleBuildStart(world: World, team: Team, type: BuildingType): 
   if (!def.buildable || p.production.building || p.credits < def.cost) return;
   if (def.requires && !hasBuilding(world, team, def.requires)) return;
   p.credits -= def.cost;
-  p.production.building = { type, progress: 0, ready: false };
+  p.production.building = { type, progress: 0, ready: false, paid: true };
 }
 
 export function handleBuildCancel(world: World, team: Team): void {
@@ -332,7 +332,7 @@ export function handleTrain(world: World, team: Team, type: UnitType): void {
   if (!hasBuilding(world, team, def.producedAt) || p.credits < def.cost || queue.length >= MAX_QUEUE) return;
   if (type === 'bomber' && bomberCapReached(world, team)) return;
   p.credits -= def.cost;
-  queue.push({ type, progress: 0, ready: false });
+  queue.push({ type, progress: 0, ready: false, paid: true });
 }
 
 export function handleTrainCancel(world: World, team: Team, type: UnitType): void {

@@ -144,4 +144,5 @@ export const UNITS: Record<UnitType, UnitDef> = {
   },
 };
 
+export const MAX_QUEUE = 99;            // câte unități încap într-o coadă de producție
 export const STARTING_CREDITS = 5000;

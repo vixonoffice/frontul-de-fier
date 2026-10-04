@@ -81,14 +81,22 @@ export type SimEvent =
   | { type: 'unload'; team: Team; x: number; y: number; amount: number }
   | { type: 'waveIncoming'; team: Team; wave: number }
   | { type: 'sold'; team: Team; id: EntityId; building: BuildingType; x: number; y: number; refund: number }
+  // ce a decis asistentul, ca UI-ul să poată arăta un jurnal scurt (ex: build + 'refinery', train + 'tank', attack, defend)
+  | { type: 'assist'; team: Team; mode: AssistMode; action: 'build' | 'train' | 'attack' | 'defend'; what: UnitType | BuildingType | null; x: number; y: number }
   | { type: 'gameOver'; winner: Team };
 
-export interface ProductionSlot<T> { type: T; progress: number; ready: boolean } // progress 0..1
+// progress 0..1. `paid`: costul a fost deja luat. Unitățile din coadă se plătesc abia când le vine rândul
+// (așa poți pune 50 în coadă fără să ai banii pe toate); clădirile se plătesc la start.
+export interface ProductionSlot<T> { type: T; progress: number; ready: boolean; paid: boolean }
+
+/** Asistentul jucătorului: trei comutatoare independente. Rulează în sim (determinist), doar pentru jucători umani. */
+export type AssistMode = 'economy' | 'defense' | 'attack';
+export interface AssistState { economy: boolean; defense: boolean; attack: boolean }
 export interface Production {
   building: ProductionSlot<BuildingType> | null;
-  units: ProductionSlot<UnitType>[];   // coada fabricii (vehicule), maxim 5
-  infantry: ProductionSlot<UnitType>[]; // coada cazărmii, maxim 5
-  air: ProductionSlot<UnitType>[];      // coada aerodromului, maxim 5
+  units: ProductionSlot<UnitType>[];   // coada fabricii (vehicule), maxim MAX_QUEUE
+  infantry: ProductionSlot<UnitType>[]; // coada cazărmii
+  air: ProductionSlot<UnitType>[];      // coada aerodromului
   rally: Vec | null;
 }
 
@@ -97,6 +105,7 @@ export interface Player {
   credits: number;
   isAI: boolean;
   difficulty: Difficulty;
+  assist: AssistState;
   production: Production;
   defeated: boolean;
 }
@@ -138,8 +147,9 @@ export type Command =
   | { t: 'buildStart'; team: Team; building: BuildingType }
   | { t: 'buildPlace'; team: Team; tx: number; ty: number }
   | { t: 'buildCancel'; team: Team }
-  | { t: 'train'; team: Team; unit: UnitType }
-  | { t: 'trainCancel'; team: Team; unit: UnitType }
+  | { t: 'train'; team: Team; unit: UnitType; count?: number }           // count: câte să pună în coadă (implicit 1, până la MAX_QUEUE)
+  | { t: 'trainCancel'; team: Team; unit: UnitType; all?: boolean }      // all: scoate din coadă toate de acest tip
+  | { t: 'assist'; team: Team; mode: AssistMode; on: boolean }           // pornește/oprește un mod al asistentului
   | { t: 'rally'; team: Team; x: number; y: number }
   | { t: 'sell'; team: Team; id: EntityId };                             // vinde o clădire proprie (nu HQ); primești SELL_REFUND din cost
 
