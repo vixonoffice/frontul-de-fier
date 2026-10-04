@@ -24,14 +24,21 @@ export interface EntitySyncEntry {
   hp: number; maxHp: number;
   team: Team;
   selected: boolean;
+  rank: number;   // 0..2, doar unitati
 }
 
 class RingPool {
   private readonly items: THREE.Mesh[] = [];
   private used = 0;
+  readonly thinGeo: THREE.BufferGeometry;
+  readonly fatGeo: THREE.BufferGeometry;
   constructor(private readonly group: THREE.Group, private readonly max: number) {
     const geo = new THREE.RingGeometry(0.85, 1, 28);
     geo.applyQuaternion(flatQuat());
+    this.fatGeo = geo;
+    // inel subtire pentru selectii mari (sub 12 unitati ramane cel gros)
+    this.thinGeo = new THREE.RingGeometry(0.94, 1, 24);
+    this.thinGeo.applyQuaternion(flatQuat());
     for (let i = 0; i < max; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.85, toneMapped: false, depthWrite: false });
       const mesh = new THREE.Mesh(geo, mat);
@@ -51,8 +58,83 @@ class RingPool {
   }
   dispose(): void {
     for (const m of this.items) { (m.material as THREE.Material).dispose(); this.group.remove(m); }
-    this.items[0]?.geometry.dispose();
+    this.fatGeo.dispose();
+    this.thinGeo.dispose();
   }
+}
+
+/** chevroane aurii pentru grad (1 sau 2), billboard, cu contur inchis la culoare pentru citire pe fundal deschis */
+class ChevronPool {
+  private readonly items: THREE.Mesh[] = [];
+  private used = 0;
+  private readonly geos: THREE.BufferGeometry[];
+  private readonly mat = new THREE.MeshBasicMaterial({ vertexColors: true, transparent: true, depthWrite: false, depthTest: false, toneMapped: false });
+  constructor(private readonly group: THREE.Group, private readonly max: number) {
+    const shape = (k: number): THREE.Shape => {
+      const sh = new THREE.Shape();
+      sh.moveTo(-0.22 * k, -0.07 * k); sh.lineTo(0, 0.13 * k); sh.lineTo(0.22 * k, -0.07 * k);
+      sh.lineTo(0.22 * k, -0.17 * k); sh.lineTo(0, 0.0); sh.lineTo(-0.22 * k, -0.17 * k); sh.closePath();
+      return sh;
+    };
+    const build = (n: number): THREE.BufferGeometry => {
+      const parts: THREE.BufferGeometry[] = [];
+      for (let i = 0; i < n; i++) {
+        const dark = new THREE.ShapeGeometry(shape(1.35));
+        dark.translate(0, -i * 0.2 - 0.02, -0.001);
+        const gold = new THREE.ShapeGeometry(shape(1));
+        gold.translate(0, -i * 0.2, 0);
+        for (const [g, c] of [[dark, [0.1, 0.06, 0.0]], [gold, [1, 0.72, 0.05]]] as const) {
+          const n2 = g.getAttribute('position').count;
+          const col = new Float32Array(n2 * 3);
+          for (let j = 0; j < n2; j++) { col[j * 3] = c[0]; col[j * 3 + 1] = c[1]; col[j * 3 + 2] = c[2]; }
+          g.setAttribute('color', new THREE.BufferAttribute(col, 3));
+          parts.push(g);
+        }
+      }
+      // fuziune manuala (fara utilitare): un singur BufferGeometry
+      let total = 0;
+      for (const g of parts) total += g.getIndex() ? g.getIndex()!.count : g.getAttribute('position').count;
+      const pos = new Float32Array(total * 3), col = new Float32Array(total * 3);
+      let o = 0;
+      for (const g of parts) {
+        const pa = g.getAttribute('position'), ca = g.getAttribute('color');
+        const idx = g.getIndex();
+        const n3 = idx ? idx.count : pa.count;
+        for (let j = 0; j < n3; j++) {
+          const v = idx ? idx.getX(j) : j;
+          pos[(o + j) * 3] = pa.getX(v); pos[(o + j) * 3 + 1] = pa.getY(v); pos[(o + j) * 3 + 2] = pa.getZ(v);
+          col[(o + j) * 3] = ca.getX(v); col[(o + j) * 3 + 1] = ca.getY(v); col[(o + j) * 3 + 2] = ca.getZ(v);
+        }
+        o += n3;
+        g.dispose();
+      }
+      const out = new THREE.BufferGeometry();
+      out.setAttribute('position', new THREE.BufferAttribute(pos.slice(0, o * 3), 3));
+      out.setAttribute('color', new THREE.BufferAttribute(col.slice(0, o * 3), 3));
+      return out;
+    };
+    this.geos = [build(1), build(2)];
+    const bq = billboardQuat();
+    for (let i = 0; i < max; i++) {
+      const m = new THREE.Mesh(this.geos[0], this.mat);
+      m.quaternion.copy(bq);
+      m.visible = false;
+      m.renderOrder = 7;
+      group.add(m);
+      this.items.push(m);
+    }
+  }
+  reset(): void { this.used = 0; }
+  place(x: number, y: number, z: number, rank: number, scale: number): void {
+    if (this.used >= this.max) return;
+    const m = this.items[this.used++];
+    m.geometry = this.geos[rank >= 2 ? 1 : 0];
+    m.position.set(x, y, z);
+    m.scale.setScalar(scale);
+    m.visible = true;
+  }
+  hideRest(): void { for (let i = this.used; i < this.items.length; i++) this.items[i].visible = false; }
+  dispose(): void { for (const g of this.geos) g.dispose(); this.mat.dispose(); for (const m of this.items) this.group.remove(m); }
 }
 
 class HealthBarPool {
@@ -97,6 +179,7 @@ export class UILayer {
   readonly group = new THREE.Group();
   private readonly selectionRings: RingPool;
   private readonly healthBars: HealthBarPool;
+  private readonly chevrons: ChevronPool;
   private readonly pulses: PulseSlot[] = [];
   private ghostObj: THREE.Group | null = null;
   private ghostType: BuildingType | null = null;
@@ -107,8 +190,9 @@ export class UILayer {
 
   constructor() {
     this.group.name = 'ui3d';
-    this.selectionRings = new RingPool(this.group, 48);
-    this.healthBars = new HealthBarPool(this.group, 64);
+    this.selectionRings = new RingPool(this.group, 140);
+    this.healthBars = new HealthBarPool(this.group, 70);
+    this.chevrons = new ChevronPool(this.group, 50);
     const pulseGeo = new THREE.RingGeometry(0.4, 0.6, 24);
     pulseGeo.applyQuaternion(flatQuat());
     for (let i = 0; i < 8; i++) {
@@ -123,19 +207,25 @@ export class UILayer {
   sync(entries: EntitySyncEntry[], time: number): void {
     this.selectionRings.reset();
     this.healthBars.reset();
+    this.chevrons.reset();
     const pulse = 1 + Math.sin(time * 4) * 0.06;
+    let selCount = 0;
+    for (const e of entries) if (e.selected) selCount++;
+    const thin = selCount > 12;   // armate mari: inele subtiri, bare doar la cei raniti
     for (const e of entries) {
       const damaged = e.hp < e.maxHp;
+      if (e.rank > 0) this.chevrons.place(e.x, e.z + e.radius + 0.5, e.y, e.rank, 1.15);
       if (e.selected) {
         const ring = this.selectionRings.next();
         if (ring) {
+          ring.geometry = thin ? this.selectionRings.thinGeo : this.selectionRings.fatGeo;
           ring.visible = true;
           ring.position.set(e.x, e.z + 0.03, e.y);
           ring.scale.setScalar(e.radius * pulse);
           (ring.material as THREE.MeshBasicMaterial).color.setHex(TEAM_COLORS[e.team]);
         }
       }
-      if (e.selected || damaged) {
+      if (damaged || (e.selected && !thin)) {
         const bar = this.healthBars.next();
         if (bar) {
           bar.group.visible = true;
@@ -151,6 +241,7 @@ export class UILayer {
     }
     this.selectionRings.hideRest();
     this.healthBars.hideRest();
+    this.chevrons.hideRest();
   }
 
   pulseAt(x: number, y: number, z: number, kind: 'move' | 'attack'): void {
@@ -247,6 +338,7 @@ export class UILayer {
   dispose(): void {
     this.selectionRings.dispose();
     this.healthBars.dispose();
+    this.chevrons.dispose();
     if (this.ghostObj) this.disposeGhostModel(this.ghostObj);
     if (this.ghostFootprint) { this.ghostFootprint.geometry.dispose(); (this.ghostFootprint.material as THREE.Material).dispose(); }
     for (const p of this.pulses) { (p.mesh.material as THREE.Material).dispose(); }

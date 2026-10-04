@@ -5,8 +5,9 @@ import * as THREE from 'three';
 import { GLTFLoader, type GLTF } from 'three/examples/jsm/loaders/GLTFLoader.js';
 import * as SkeletonUtils from 'three/examples/jsm/utils/SkeletonUtils.js';
 import type { Team, UnitType, BuildingType } from '../sim/types';
+import { mergeMeshes } from './merge';
 import { BUILDINGS } from '../data/buildings';
-import { TEAM_COLORS, procedural, oreMaterial } from './models';
+import { TEAM_COLORS, procedural, oreMaterial, lampMaterial } from './models';
 
 export type ModelType = UnitType | BuildingType;
 
@@ -39,19 +40,22 @@ const SPECS: Partial<Record<ModelType, Spec>> = {
     turret: { nodes: ['Tank_Turret', 'Tank_Gun'], pivot: 'Tank_Turret' },
   },
   rocket: {
-    file: 'rocket.glb', kind: 'unit', yaw: 0, len: 1.05, tintAll: 0.8,
+    file: 'rocket.glb', kind: 'unit', yaw: 0, len: 1.2, tintAll: 0.8,
     extra: (root, team, info) => addRocketRack(root, team, info),
   },
   harvester: {
     file: 'harvester.glb', kind: 'unit', yaw: 0, len: 1.1, tintAll: 0.85,
     extra: (root, _team, info) => addOrePile(root, info),
   },
+  warHarvester: {
+    file: 'harvester.glb', kind: 'unit', yaw: 0, len: 1.1, tintAll: 0.85,
+    extra: (root, team, info) => { addOrePile(root, info); addGunTurret(root, team, info); },
+  },
   soldier: { file: 'soldier.glb', kind: 'unit', yaw: 0, height: 0.72, paint: { Swat: 1.1 }, skinned: true },
   bazooka: {
     file: 'soldier.glb', kind: 'unit', yaw: 0, height: 0.72, paint: { Swat: 1.1 }, skinned: true,
     extra: (root, _team, info) => addBazookaTube(root, info),
   },
-  bomber: { file: 'bomber.glb', kind: 'air', yaw: 0, span: 1.7, paint: { White: 1.15 } },
   hq: { file: 'hq.glb', kind: 'building', yaw: 0, fit: true, tintAll: 0.75, rise: 3 },
   refinery: { file: 'refinery.glb', kind: 'building', yaw: 0, fit: true, paint: { Blue: 1 }, rise: 2.6 },
   factory: { file: 'factory.glb', kind: 'building', yaw: 0, fit: true, paint: { Cyan: 1 }, rise: 2.8 },
@@ -65,12 +69,13 @@ const SPECS: Partial<Record<ModelType, Spec>> = {
     turret: { nodes: ['Turret_Cannon_Top'], pivot: 'Turret_Cannon_Top' },
   },
   rocketTurret: {
-    file: 'rocketturret.glb', kind: 'building', yaw: 0, len: 1.0, paint: { metalRed: 1 }, rise: 1.0,
-    turret: { nodes: ['turret'], pivot: 'turret' },
+    file: 'rocketturret.glb', kind: 'building', yaw: 0, len: 1.0, paint: { Orange: 1.0 }, rise: 1.0,
+    turret: { nodes: ['Turret_GunDouble_Top'], pivot: 'Turret_GunDouble_Top' },
+    extra: (root, team) => addMissilePods(root, team),
   },
 };
 
-const SCENERY_FILES = ['rock1.glb', 'rock2.glb'];
+const SCENERY_FILES = ['rock1.glb', 'rock2.glb', 'tree1.glb', 'tree2.glb', 'tree3.glb', 'bush1.glb'];
 export function getLoadedModel(file: string): GLTF | undefined {
   return loaded.get(file);
 }
@@ -156,6 +161,11 @@ function teamMaterial(spec: Spec, m: THREE.Material, team: Team): THREE.Material
     matCache.set(key, c);
   }
   return out;
+}
+
+function isUnder(o: THREE.Object3D, ancestor: THREE.Object3D): boolean {
+  for (let p: THREE.Object3D | null = o; p; p = p.parent) if (p === ancestor) return true;
+  return false;
 }
 
 function meshBox(obj: THREE.Object3D): THREE.Box3 {
@@ -261,11 +271,37 @@ function buildTemplate(type: ModelType, team: Team): THREE.Group | null {
     plate.position.y = 0;
     root.add(plate);
     root.add(teamTrim(fw, fh, team));
+    // lumini aprinse pe colturile platformei (se estompeaza la lipsa de curent)
+    const lm = lampMaterial(team);
+    const lampGeo = lampGeoShared();
+    for (const [sx, sz] of [[-1, -1], [1, -1], [-1, 1], [1, 1]] as const) {
+      const lamp = new THREE.Mesh(lampGeo, lm);
+      lamp.position.set(sx * (fw / 2 - 0.13), 0.2, sz * (fh / 2 - 0.13));
+      root.add(lamp);
+    }
     const fl = procedural.flag(team, fw / 2 - 0.22, 0.1, fh / 2 - 0.22, type === 'turret' || type === 'rocketTurret' ? 0.9 : 1.5);
     fl.scale.setScalar(1.35);
     root.add(fl);
   } else if (spec.kind === 'unit') {
     root.add(teamRing(type, team));
+  }
+  // mai putine desenari: fuzioneaza mesh-urile statice (tureta separat, pentru ca se roteste)
+  if (!spec.skinned) {
+    root.updateMatrixWorld(true);
+    const skip = new Set(['teamRing', 'hopper']);
+    const collect = (node: THREE.Object3D, excl?: THREE.Object3D): THREE.Mesh[] => {
+      const list: THREE.Mesh[] = [];
+      node.traverse((o) => {
+        const m = o as THREE.Mesh;
+        if (!m.isMesh || skip.has(m.name) || (excl && isUnder(m, excl))) return;
+        list.push(m);
+      });
+      return list;
+    };
+    const pivot = root.getObjectByName('turretPivot');
+    const tag = type + '|' + team;
+    if (pivot) mergeMeshes(pivot, collect(pivot), tag + '|t');
+    mergeMeshes(root, collect(root, pivot ?? undefined), tag);
   }
   root.userData.riseHeight = spec.rise ?? 1;
   root.userData.height = info.size.y;
@@ -274,6 +310,12 @@ function buildTemplate(type: ModelType, team: Team): THREE.Group | null {
   root.userData.skinned = !!spec.skinned;
   templates.set(key, root);
   return root;
+}
+
+let lampGeo: THREE.BufferGeometry | null = null;
+function lampGeoShared(): THREE.BufferGeometry {
+  if (!lampGeo) lampGeo = new THREE.SphereGeometry(0.045, 6, 5);
+  return lampGeo;
 }
 
 const ringGeoCache = new Map<number, THREE.BufferGeometry>();
@@ -350,6 +392,44 @@ function addRunway(root: THREE.Group): void {
   root.add(procedural.box(0.05, 0.01, 2.6, paint, 1.8, 0.14, 0));
 }
 
+/** tureta armata pe camionul recoltorului blindat: pivot 'turretPivot' care urmeaza turretAngle */
+function addGunTurret(root: THREE.Group, team: Team, info: Info): void {
+  const pivot = new THREE.Group();
+  pivot.name = 'turretPivot';
+  pivot.position.set(0, info.size.y, info.size.z * 0.12);
+  const dark = procedural.mat('gunDark', 0x4b5058, { roughness: 0.5, metalness: 0.5 });
+  pivot.add(procedural.box(0.34, 0.06, 0.34, dark, 0, 0.03, 0));
+  pivot.add(procedural.box(0.26, 0.15, 0.28, procedural.teamMat(team), 0, 0.13, 0));
+  const barrel = new THREE.Mesh(new THREE.CylinderGeometry(0.035, 0.04, 0.5, 8), dark);
+  barrel.rotation.x = Math.PI / 2;
+  barrel.position.set(0, 0.14, 0.34);
+  pivot.add(barrel);
+  pivot.add(procedural.box(0.1, 0.07, 0.06, dark, 0, 0.14, 0.12));
+  procedural.enableShadows(pivot);
+  root.add(pivot);
+}
+
+/** doua tuburi de rachete pe tureta anti-aeriana, ca sa se deosebeasca de tureta normala */
+function addMissilePods(root: THREE.Group, team: Team): void {
+  const pivot = root.getObjectByName('turretPivot');
+  if (!pivot) return;
+  const dark = procedural.mat('podDark', 0x3c4047, { roughness: 0.5, metalness: 0.5 });
+  for (const sx of [-1, 1]) {
+    const pod = new THREE.Group();
+    pod.position.set(sx * 0.27, 0.42, -0.02);
+    pod.rotation.x = -0.55;
+    pod.add(procedural.box(0.14, 0.14, 0.4, dark, 0, 0, 0));
+    for (const [dx, dy] of [[-0.035, -0.035], [0.035, -0.035], [-0.035, 0.035], [0.035, 0.035]]) {
+      const tip = new THREE.Mesh(new THREE.CylinderGeometry(0.026, 0.026, 0.04, 8), procedural.teamMat(team));
+      tip.rotation.x = Math.PI / 2;
+      tip.position.set(dx, dy, 0.21);
+      pod.add(tip);
+    }
+    pivot.add(pod);
+  }
+  procedural.enableShadows(pivot);
+}
+
 function addOrePile(root: THREE.Group, info: Info): void {
   const hopper = new THREE.Mesh(new THREE.BoxGeometry(0.5, 0.1, 0.5), oreMaterial());
   hopper.name = 'hopper';
@@ -413,4 +493,23 @@ export function instantiate(type: ModelType, team: Team): Instance | null {
 
 export function modelHeight(obj: THREE.Object3D): number | undefined {
   return obj.userData.height as number | undefined;
+}
+
+// --- materiale de avarie: aceleasi materiale intunecate (clonate o data per material si nivel) ---
+const damageCache = new Map<string, THREE.Material>();
+export function damagedMaterial(m: THREE.Material, level: 1 | 2): THREE.Material {
+  const std = m as THREE.MeshStandardMaterial;
+  // luminile / materialele emisive si cele fara iluminare raman neschimbate
+  if (!std.isMeshStandardMaterial || std.emissiveIntensity > 0.05 && (std.emissive?.getHex() ?? 0) !== 0) return m;
+  const key = m.uuid + '|' + level;
+  let out = damageCache.get(key);
+  if (!out) {
+    const c = std.clone();
+    c.color.multiplyScalar(level === 1 ? 0.66 : 0.42);
+    c.color.lerp(new THREE.Color(0x2a1d14), level === 1 ? 0.12 : 0.28);
+    c.roughness = 0.95;
+    out = c;
+    damageCache.set(key, c);
+  }
+  return out;
 }

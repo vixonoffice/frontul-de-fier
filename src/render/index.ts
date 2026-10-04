@@ -13,8 +13,8 @@ import { FogOverlay } from './fog';
 import { CameraRig, cameraDirConstant } from './camera';
 import { EffectsSystem } from './effects';
 import { UILayer, type EntitySyncEntry } from './uiLayer';
-import { MODEL_FACTORY } from './models';
-import { preloadAssets, instantiate, assetsVersion, isReady, sceneryLoaded, type Instance, type ModelType } from './assets';
+import { MODEL_FACTORY, setLampLevel } from './models';
+import { preloadAssets, instantiate, assetsVersion, isReady, sceneryLoaded, damagedMaterial, type Instance, type ModelType } from './assets';
 import { ProjectileLayer } from './projectiles';
 import { buildScenery, type Scenery } from './scenery';
 import { BUILDINGS } from '../data/buildings';
@@ -33,7 +33,7 @@ function worldYaw(angle: number): number {
 }
 
 function unitRadius(type: Unit['type']): number {
-  if (type === 'harvester') return 0.95;
+  if (type === 'harvester' || type === 'warHarvester') return 0.95;
   if (type === 'rocket') return 0.75;
   if (type === 'soldier' || type === 'bazooka') return 0.42;
   if (type === 'bomber') return 0.95;
@@ -49,7 +49,7 @@ function unitPickBox(type: Unit['type']): { w: number; h: number; d: number } {
   switch (type) {
     case 'soldier': case 'bazooka': return { w: 0.75, h: 0.8, d: 0.75 };
     case 'bomber': return { w: 1.7, h: 0.9, d: 1.7 };
-    case 'harvester': return { w: 1.1, h: 0.9, d: 1.4 };
+    case 'harvester': case 'warHarvester': return { w: 1.1, h: 0.9, d: 1.4 };
     default: return { w: 1.0, h: 0.8, d: 1.3 };
   }
 }
@@ -67,6 +67,13 @@ interface AnimRecord {
   contrailAcc: number;
   pickH: number;
   animAcc: number;
+  rank: number;
+  repairing: boolean;
+  dmg: 0 | 1 | 2;                // stare de avarie: 0 intact, 1 sub 50%, 2 sub 25%
+  repairFx: THREE.Group | null;
+  repairAcc: number;
+  steamAcc: number;
+  onScreen: boolean;
   team: Team;
   maxHp: number;
   hp: number;
@@ -181,6 +188,48 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     return type === 'turret' || type === 'rocketTurret' ? 1.0 : type === 'barracks' ? 1.8 : 2.2;
   }
 
+  // aglomerare: peste ~70 de unitati pe ecran nu mai proiecteaza umbra fiecare (cost de pasaj de umbre)
+  let crowd = false;
+  const smallNoShadow = (t: ModelType): boolean => t === 'soldier' || t === 'bazooka' || t === 'bomber';
+  function applyUnitShadows(obj: THREE.Object3D, type: ModelType): void {
+    const cast = !crowd && !smallNoShadow(type);
+    obj.traverse((c) => { if (c instanceof THREE.Mesh && c.name !== 'teamRing') c.castShadow = cast; });
+  }
+
+  // stari de avarie: materiale intunecate (clonate o data per material si nivel)
+  const damagedOrig = new Map<THREE.Object3D, Map<THREE.Mesh, THREE.Material>>();
+  function applyDamageState(rec: AnimRecord, obj: THREE.Object3D): void {
+    const frac = rec.maxHp > 0 ? rec.hp / rec.maxHp : 1;
+    const st: 0 | 1 | 2 = frac < 0.25 ? 2 : frac < 0.5 ? 1 : 0;
+    if (st === rec.dmg) return;
+    rec.dmg = st;
+    let orig = damagedOrig.get(obj);
+    if (!orig) { orig = new Map(); damagedOrig.set(obj, orig); }
+    obj.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (!m.isMesh || m.name === 'teamRing' || Array.isArray(m.material)) return;
+      if (!orig!.has(m)) orig!.set(m, m.material as THREE.Material);
+      const base = orig!.get(m)!;
+      m.material = st === 0 ? base : damagedMaterial(base, st);
+    });
+  }
+
+  const repairMat = new THREE.MeshBasicMaterial({ color: 0x6dff9a, transparent: true, opacity: 0.6, depthWrite: false, toneMapped: false, side: THREE.DoubleSide });
+  function makeRepairFrame(w: number, h: number): THREE.Group {
+    const g = new THREE.Group();
+    const t = 0.09;
+    const mk = (pw: number, ph: number, x: number, z: number): void => {
+      const geo = new THREE.PlaneGeometry(pw, ph);
+      geo.rotateX(-Math.PI / 2);
+      const m = new THREE.Mesh(geo, repairMat);
+      m.position.set(x, 0, z);
+      m.renderOrder = 4;
+      g.add(m);
+    };
+    mk(w, t, 0, h / 2 - t / 2); mk(w, t, 0, -h / 2 + t / 2); mk(t, h, w / 2 - t / 2, 0); mk(t, h, -w / 2 + t / 2, 0);
+    return g;
+  }
+
   /** model real daca e incarcat, altfel placeholderul procedural */
   function makeObject(type: ModelType, team: Team): { obj: THREE.Group; inst: Instance | null } {
     const inst = instantiate(type, team);
@@ -226,7 +275,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
 
   function disposeObject3D(obj: THREE.Object3D): void {
     obj.traverse((c) => {
-      if (c instanceof THREE.Mesh) c.geometry.dispose();
+      if (c instanceof THREE.Mesh && !c.geometry.userData.shared) c.geometry.dispose();
     });
   }
 
@@ -243,6 +292,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       (rec0.shadow.material as THREE.Material).dispose();
     }
     rec0?.inst?.mixer?.stopAllAction();
+    if (rec0?.repairFx) { entityLayer.remove(rec0.repairFx); rec0.repairFx.traverse((c) => { if (c instanceof THREE.Mesh) c.geometry.dispose(); }); }
+    damagedOrig.delete(obj as THREE.Object3D);
     const proxy = proxies.get(id);
     if (proxy) { pickLayer.remove(proxy); proxy.geometry.dispose(); proxies.delete(id); }
     anim.delete(id);
@@ -253,6 +304,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     if (!rec) {
       const made = makeObject(u.type, u.team);
       const obj = made.obj;
+      if (crowd) applyUnitShadows(obj, u.type);
       entityLayer.add(obj);
       objects.set(u.id, obj);
       const proxy = new THREE.Mesh(proxyGeometryFor('unit', u.type), new THREE.MeshBasicMaterial({ visible: false }));
@@ -261,7 +313,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       proxies.set(u.id, proxy);
       rec = {
         kind: 'unit', type: u.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: u.lastFireTick,
-        prevAlt: u.alt, curAlt: u.alt, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: unitPickBox(u.type).h, animAcc: 0,
+        prevAlt: u.alt, curAlt: u.alt, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: unitPickBox(u.type).h, animAcc: 0, rank: 0, repairing: false, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
         team: u.team, maxHp: u.maxHp, hp: u.hp, radius: unitRadius(u.type),
         builtTick: -999999, riseHeight: 0,
         prevX: u.x, prevY: u.y, prevAngle: u.angle, prevTurret: u.turretAngle,
@@ -275,6 +327,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       rec.prevAlt = rec.curAlt; rec.curAlt = u.alt;
     }
     rec.lastFire = u.lastFireTick;
+    rec.rank = u.rank ?? 0;
     rec.hp = u.hp;
     rec.maxHp = u.maxHp;
     rec.moving = u.moving;
@@ -297,7 +350,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       const riseHeight = (obj.userData.riseHeight as number | undefined) ?? 2;
       rec = {
         kind: 'building', type: b.type, real: !!made.inst, inst: made.inst, clip: '', lastFire: 0,
-        prevAlt: 0, curAlt: 0, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: buildingPickHeight(b.type), animAcc: 0,
+        prevAlt: 0, curAlt: 0, bank: 0, pitch: 0, shadow: null, contrailAcc: 0, pickH: buildingPickHeight(b.type), animAcc: 0, rank: 0, repairing: false, dmg: 0, repairFx: null, repairAcc: 0, steamAcc: 0, onScreen: true,
         team: b.team, maxHp: b.maxHp, hp: b.hp, radius: Math.max(size.w, size.h) * 0.62,
         builtTick: b.builtTick, riseHeight,
         prevX: cx, prevY: cy, prevAngle: 0, prevTurret: b.turretAngle,
@@ -312,6 +365,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
     }
     rec.hp = b.hp;
     rec.maxHp = b.maxHp;
+    rec.repairing = !!b.repairing;
   }
 
   /** cand un GLB tocmai s-a incarcat: inlocuieste placeholderele de acel tip */
@@ -327,6 +381,9 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       rec.inst = made.inst;
       rec.real = true;
       rec.clip = '';
+      rec.dmg = 0;
+      damagedOrig.delete(old as THREE.Object3D);
+      if (rec.kind === 'unit' && crowd) applyUnitShadows(made.obj, rec.type);
       if (rec.kind === 'building') rec.riseHeight = (made.obj.userData.riseHeight as number | undefined) ?? 2;
     }
   }
@@ -364,6 +421,10 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         else effects.hit(ev.x, hy + 0.3, ev.y, ev.weapon === 'rocket' ? 'rocket' : 'shell');
       } else if (ev.type === 'destroyed') {
         effects.explosion(ev.x, heightAt(ev.x, ev.y) + 0.15, ev.y, 0.7 + ev.size * 0.6, camera.distance);
+      } else if (ev.type === 'crushed') {
+        effects.crushPuff(ev.x, heightAt(ev.x, ev.y), ev.y);
+      } else if (ev.type === 'promoted') {
+        effects.promoteFlash(ev.x, heightAt(ev.x, ev.y), ev.y, ev.rank);
       } else if (ev.type === 'unload') {
         effects.dustKick(ev.x, heightAt(ev.x, ev.y) + 0.1, ev.y);
       }
@@ -410,6 +471,12 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   }
 
   let frameNo = 0;
+  const frustum = new THREE.Frustum();
+  const frustumMat = new THREE.Matrix4();
+  const sphere = new THREE.Sphere();
+  let frustumReady = false;
+  const pickList: THREE.Object3D[] = [];
+  let unitsOnScreen = 0;
   /** soldati: animatie scheletica (idle / alergare / tras); fara model real, doar un mic salt la mers */
   function updateInfantry(id: EntityId, rec: AnimRecord, obj: THREE.Object3D, world: World, dt: number): void {
     const inst = rec.inst;
@@ -427,8 +494,11 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         }
       }
       rec.animAcc += dt;
-      // pe calitate redusa mixerul se actualizeaza la fiecare al doilea cadru
-      if (quality === 0 || ((frameNo + id) & 1) === 0) {
+      // mixerul se actualizeaza rar pentru soldatii departe de camera si la fiecare al doilea cadru pe calitate redusa
+      const dx = obj.position.x - camera.target.x, dz = obj.position.z - camera.target.z;
+      const far = dx * dx + dz * dz > 18 * 18;
+      const step = far ? 4 : quality === 0 ? 1 : 2;
+      if (step === 1 || ((frameNo + id) % step) === 0) {
         inst.mixer.update(rec.animAcc);
         rec.animAcc = 0;
       }
@@ -440,6 +510,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   function updateVisuals(world: World, alpha: number, dt: number): void {
     frameNo++;
     pickableNow.clear();
+    pickList.length = 0;
+    unitsOnScreen = 0;
     for (const [id, rec] of anim) {
       const obj = objects.get(id);
       const proxy = proxies.get(id);
@@ -453,9 +525,17 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       else if (rec.kind === 'unit') visible = fogValueAt(world, x, y) >= 2;
       else visible = fogValueAt(world, x, y) >= 1;
       rec.visible = visible;
-      obj.visible = visible;
+      // in afara ecranului (cu margine) nu se deseneaza si nu se anima: cost redus la armate mari
+      const flying = rec.type === 'bomber';
+      sphere.center.set(x, groundY + (flying ? 3.2 : 0.4), y);
+      sphere.radius = rec.radius + 2.2 + (flying ? 3.5 : 0);
+      const onScreen = visible && frustumReady && frustum.intersectsSphere(sphere) || (visible && !frustumReady);
+      rec.onScreen = onScreen;
+      obj.visible = onScreen;
+      if (rec.shadow) rec.shadow.visible = onScreen;
       proxy.visible = false; // proxy e mereu invizibil vizual; serveste doar pick-ului
       if (visible) pickableNow.add(id);
+      if (onScreen) { pickList.push(proxy); if (rec.kind === 'unit') unitsOnScreen++; }
 
       if (rec.kind === 'unit') {
         const angle = lerpAngle(rec.prevAngle, rec.curAngle, alpha);
@@ -463,7 +543,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
         obj.position.set(x, groundY + alt, y);
         obj.rotation.set(0, worldYaw(angle), 0);
         if (rec.type === 'bomber') updateAircraft(rec, obj, angle, x, y, groundY, alt, visible, dt);
-        else if (rec.type === 'soldier' || rec.type === 'bazooka') updateInfantry(id, rec, obj, world, dt);
+        else if ((rec.type === 'soldier' || rec.type === 'bazooka') && onScreen) updateInfantry(id, rec, obj, world, dt);
         const turretPivot = obj.userData.turret as THREE.Object3D | undefined;
         if (turretPivot) {
           const turretAngle = lerpAngle(rec.prevTurret, rec.curTurret, alpha);
@@ -478,7 +558,7 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
           hopper.scale.y = Math.max(0.05, h / 0.1);
           hopper.position.y = base + h / 2;
         }
-        if (visible && rec.moving && (rec.type === 'tank' || rec.type === 'rocket' || rec.type === 'harvester')) {
+        if (onScreen && rec.moving && (rec.type === 'tank' || rec.type === 'rocket' || rec.type === 'harvester' || rec.type === 'warHarvester')) {
           rec.dustAcc += dt;
           rec.trackAcc += dt;
           if (rec.dustAcc > 0.1) {
@@ -515,26 +595,69 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       }
       proxy.position.set(obj.position.x, obj.position.y + (rec.type === 'bomber' ? 0 : rec.pickH / 2), obj.position.z);
 
-      if (visible && rec.maxHp > 0 && rec.hp < rec.maxHp * 0.5) {
+      applyDamageState(rec, obj);
+      if (onScreen && rec.maxHp > 0 && rec.hp < rec.maxHp * 0.5) {
         rec.smokeAcc += dt;
-        const thresh = rec.hp < rec.maxHp * 0.25 ? 0.18 : 0.4;
-        if (rec.smokeAcc > thresh) {
+        const crit = rec.hp < rec.maxHp * 0.25;
+        if (rec.smokeAcc > (crit ? 0.09 : 0.25)) {
           rec.smokeAcc = 0;
-          effects.damageSmoke(obj.position.x, obj.position.y + rec.radius * 0.8, obj.position.z, rec.hp < rec.maxHp * 0.25);
+          const spread = rec.kind === 'building' ? rec.radius * 0.5 : 0.12;
+          const ox = (Math.random() - 0.5) * 2 * spread, oz = (Math.random() - 0.5) * 2 * spread;
+          effects.damageSmoke(obj.position.x + ox, obj.position.y + rec.radius * 0.8, obj.position.z + oz, crit);
+          if (crit && rec.kind === 'building') effects.fireBurst(obj.position.x - oz, obj.position.y + rec.radius * 0.5, obj.position.z + ox);
+        }
+      }
+      if (rec.kind === 'building') {
+        if (rec.repairing && visible) {
+          const sz = buildingSize(rec.type as BuildingType);
+          if (!rec.repairFx) { rec.repairFx = makeRepairFrame(sz.w + 0.1, sz.h + 0.1); entityLayer.add(rec.repairFx); }
+          rec.repairFx.position.set(x, groundY + 0.09, y);
+          rec.repairFx.visible = onScreen;
+          if (onScreen) {
+            rec.repairAcc += dt;
+            if (rec.repairAcc > 0.07) {
+              rec.repairAcc = 0;
+              effects.repairSpark(x + (Math.random() - 0.5) * sz.w * 0.9, groundY + 0.15 + Math.random() * 0.4, y + (Math.random() - 0.5) * sz.h * 0.9);
+            }
+          }
+        } else if (rec.repairFx) {
+          entityLayer.remove(rec.repairFx);
+          rec.repairFx.traverse((c) => { if (c instanceof THREE.Mesh) c.geometry.dispose(); });
+          rec.repairFx = null;
+        }
+        const steam = obj.userData.steam as [number, number, number][] | undefined;
+        if (steam && onScreen && t01(world, rec) >= 1) {
+          rec.steamAcc += dt;
+          if (rec.steamAcc > 0.3) {
+            rec.steamAcc = 0;
+            for (const sp of steam) effects.steam(obj.position.x + sp[0], obj.position.y + sp[1], obj.position.z + sp[2]);
+          }
         }
       }
     }
+    repairMat.opacity = 0.35 + 0.35 * (0.5 + 0.5 * Math.sin(clock * 6));
+    // aglomerare: cu peste 70 de unitati pe ecran umbrele lor se opresc (revin sub 50)
+    const wantCrowd = crowd ? unitsOnScreen > 50 : unitsOnScreen > 70;
+    if (wantCrowd !== crowd) {
+      crowd = wantCrowd;
+      for (const [id, rec] of anim) if (rec.kind === 'unit') { const o = objects.get(id); if (o) applyUnitShadows(o, rec.type); }
+    }
+  }
+
+  /** 0..1 cat de construita e cladirea (pentru efecte care incep dupa ce s-a ridicat) */
+  function t01(world: World, rec: AnimRecord): number {
+    return Math.max(0, Math.min(1, (world.tick - (rec.builtTick - RISE_TICKS)) / RISE_TICKS));
   }
 
   function buildSyncEntries(): EntitySyncEntry[] {
     const out: EntitySyncEntry[] = [];
     for (const [id, rec] of anim) {
-      if (!rec.visible) continue;
+      if (!rec.visible || !rec.onScreen) continue;
       const obj = objects.get(id);
       if (!obj) continue;
       out.push({
         id, x: obj.position.x, y: obj.position.z, z: obj.position.y,
-        radius: rec.radius, hp: rec.hp, maxHp: rec.maxHp, team: rec.team, selected: selection.has(id),
+        radius: rec.radius, hp: rec.hp, maxHp: rec.maxHp, team: rec.team, selected: selection.has(id), rank: rec.kind === 'unit' ? rec.rank : 0,
       });
     }
     return out;
@@ -600,6 +723,15 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
       lastTick = world.tick;
     }
     if (fogOverlay) fogOverlay.update(world.fog[localTeam] ?? new Uint8Array(mapW * mapH), dtSeconds);
+    camera.camera.updateMatrixWorld();
+    frustumMat.multiplyMatrices(camera.camera.projectionMatrix, camera.camera.matrixWorldInverse);
+    frustum.setFromProjectionMatrix(frustumMat);
+    frustumReady = true;
+    // lipsa de curent: luminile cladirilor proprii se estompeaza si palpaie
+    const pw = world.players[localTeam]?.power;
+    let lamp = 1;
+    if (pw && pw.used > pw.made) lamp = 0.1 + (Math.sin(clock * 19) * Math.sin(clock * 7.3) > 0.15 ? 0.5 : 0);
+    setLampLevel(localTeam, lamp);
     updateVisuals(world, alpha, dtSeconds);
     projectiles.update(alpha, dtSeconds, heightAt, effects, (px, py) => fogValueAt(world, px, py) >= 2);
     terrain?.update(clock);
@@ -628,8 +760,8 @@ export const createRenderer: CreateRenderer = (canvas: HTMLCanvasElement): Rende
   function pick(screenX: number, screenY: number): PickResult {
     const ray = camera.raycastFromScreen(screenX, screenY);
     let entityId: EntityId | null = null;
-    if (pickLayer.children.length > 0) {
-      const hits = ray.intersectObjects(pickLayer.children, false);
+    if (pickList.length > 0) {
+      const hits = ray.intersectObjects(pickList, false);
       for (const h of hits) {
         const id = h.object.userData.entityId as EntityId | undefined;
         if (id !== undefined && pickableNow.has(id)) { entityId = id; break; }

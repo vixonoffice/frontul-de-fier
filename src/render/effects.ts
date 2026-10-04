@@ -359,6 +359,48 @@ export class EffectsSystem {
     this.shake.trigger(Math.min(0.9, 0.5 + 2 / Math.max(4, cameraDistance * 0.2)), 0.55);
   }
 
+  /** unitate avansata in grad: coloana scurta de scantei aurii in sus + sclipire */
+  promoteFlash(x: number, y: number, z: number, rank: number): void {
+    this.flash.spawn(x, y + 0.5, z, { life: 0.35, size0: 0.4, size1: 1.7, color: 0xffd84a });
+    const n = rank >= 2 ? 9 : 6;
+    for (let i = 0; i < n; i++) {
+      const a = (i / n) * Math.PI * 2;
+      this.spark.spawn(x + Math.cos(a) * 0.25, y + 0.2, z + Math.sin(a) * 0.25, {
+        life: 0.7, size0: 0.14, size1: 0.03, color: 0xffd84a, vx: Math.cos(a) * 0.3, vy: 3.2 + (i % 3) * 0.6, vz: Math.sin(a) * 0.3,
+      });
+    }
+    for (let i = 0; i < 4; i++) this.trail.spawn(x, y + 0.3 + i * 0.35, z, { life: 0.55, size0: 0.32, size1: 0.1, color: 0xffcf3a, vy: 1.6 });
+  }
+
+  /** reparatie in curs: scantei mici verzi/albe care urca */
+  repairSpark(x: number, y: number, z: number): void {
+    const green = Math.random() < 0.6;
+    this.spark.spawn(x, y, z, {
+      life: 0.7, size0: 0.11, size1: 0.02, color: green ? 0x6dff9a : 0xe8fff0,
+      vx: (Math.random() - 0.5) * 0.4, vy: 1.6 + Math.random() * 0.8, vz: (Math.random() - 0.5) * 0.4,
+    });
+  }
+
+  /** infanterist strivit: nor de praf si urma turtita */
+  crushPuff(x: number, y: number, z: number): void {
+    for (let i = 0; i < 4; i++) {
+      this.dust.spawn(x + (Math.random() - 0.5) * 0.3, y + 0.05, z + (Math.random() - 0.5) * 0.3, {
+        life: 0.6, size0: 0.15, size1: 0.55, color: 0xa89c78, vy: 0.3, vx: (Math.random() - 0.5) * 0.8, vz: (Math.random() - 0.5) * 0.8,
+      });
+    }
+    this.track.spawn(x, y + 0.012, z, { life: 7, size0: 0.5, size1: 0.5, color: 0x2a1c14 });
+  }
+
+  /** abur la turnurile de racire */
+  steam(x: number, y: number, z: number): void {
+    this.trail.spawn(x, y, z, { life: 1.4, size0: 0.3, size1: 0.9, color: 0xcfd9e2, vy: 0.55, vx: 0.08 });
+  }
+
+  /** foc la cladiri sub 25% viata */
+  fireBurst(x: number, y: number, z: number): void {
+    this.fire.spawn(x, y, z, { life: 0.3, size0: 0.4, size1: 0.1, color: 0xff7a2a, vy: 0.7 });
+  }
+
   smokeTrail(x: number, y: number, z: number): void {
     this.smoke.spawn(x, y, z, { life: 0.8, size0: 0.25, size1: 0.6, color: 0xcfcac0, vy: 0.3 });
   }
