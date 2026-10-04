@@ -217,7 +217,10 @@ function runOne(world: World, internal: Internal, team: Team, difficulty: Diffic
       const targetTeam = pickTargetTeam(world, internal, team);
       const target = pickAttackTarget(world, internal, team, targetTeam, difficulty === 'hard');
       if (target) {
-        const ids = army.map((u) => u.id);
+        // pe Ușor pleacă doar un val de mărimea cerută, nu toată armata strânsă între timp
+        // (altfel, cu economia rapidă, primul val pe Ușor avea 20+ unități și rădea un începător)
+        const waveCap = difficulty === 'easy' ? needed + 2 : army.length;
+        const ids = army.slice(0, waveCap).map((u) => u.id);
         mem.waveIds = ids;
         mem.waveTarget = target;
         if (difficulty === 'hard' && ids.length >= 12) {

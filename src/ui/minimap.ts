@@ -81,7 +81,7 @@ export function initMinimap(ctx: UiContext): UiModule {
     for (const b of ctx.world.buildings.values()) {
       const cx = Math.floor(b.tx + b.w / 2);
       const cy = Math.floor(b.ty + b.h / 2);
-      if (b.team !== ctx.localTeam && fog[cy * map.w + cx] !== 2) continue;
+      if (b.team !== ctx.localTeam && fog[cy * map.w + cx] === 0) continue; // clădirile inamice rămân pe hartă odată văzute
       const col = TEAM_RGB[b.team] ?? [200, 200, 200];
       for (let y = b.ty; y < b.ty + b.h; y++) {
         for (let x = b.tx; x < b.tx + b.w; x++) {
@@ -95,7 +95,7 @@ export function initMinimap(ctx: UiContext): UiModule {
       const tx = Math.floor(u.x);
       const ty = Math.floor(u.y);
       if (tx < 0 || ty < 0 || tx >= map.w || ty >= map.h) continue;
-      if (u.team !== ctx.localTeam && fog[ty * map.w + tx] !== 2) continue;
+      if (u.team !== ctx.localTeam && (fog[ty * map.w + tx] !== 2 || !radarOn())) continue; // unitățile inamice apar doar cu radar
       const col = TEAM_RGB[u.team] ?? [200, 200, 200];
       const o = (ty * map.w + tx) * 4;
       data[o] = col[0]; data[o + 1] = col[1]; data[o + 2] = col[2];
@@ -146,7 +146,9 @@ export function initMinimap(ctx: UiContext): UiModule {
     const r = stack.getBoundingClientRect();
     return { x: e.clientX - r.left, y: e.clientY - r.top };
   }
-  const hasRadar = () => (ctx.world.players.find((p) => p.team === ctx.localTeam) as { radar?: boolean } | undefined)?.radar !== false;
+  // Harta mică merge mereu (teren, bază, ce ai explorat). Radarul adaugă inamicii vizibili pe ea.
+  const radarOn = () => (ctx.world.players.find((p) => p.team === ctx.localTeam) as { radar?: boolean } | undefined)?.radar !== false;
+  const hasRadar = () => true;
   function onDown(e: PointerEvent) {
     if (!hasRadar()) return; // fără radar harta mică nu navighează
     if (!ctx.minimapBig) {
@@ -195,7 +197,7 @@ export function initMinimap(ctx: UiContext): UiModule {
   nz.height = 40;
   const nzCtx = nz.getContext('2d')!;
   const nzImg = nzCtx.createImageData(40, 40);
-  let prevRadar = hasRadar();
+  let prevRadar = false; // la start nu ai radar: nu anunța asta ca pe o pierdere
   let nzTick = 0;
   function drawNoise() {
     if ((nzTick++ & 1) === 0) {
@@ -211,13 +213,14 @@ export function initMinimap(ctx: UiContext): UiModule {
 
   function update() {
     panel.classList.toggle('big', ctx.minimapBig);
+    const radarNow = radarOn();
     const radar = hasRadar();
-    if (radar !== prevRadar && ctx.started) {
-      prevRadar = radar;
-      ctx.toast(radar ? 'Radar activ: harta mică e înapoi.' : 'Radar pierdut: harta mică nu mai merge.', radar ? 'info' : 'bad');
-      ctx.sfx(radar ? 'radarOn' : 'radarOff');
+    if (radarNow !== prevRadar && ctx.started) {
+      prevRadar = radarNow;
+      ctx.toast(radarNow ? 'Radar activ: vezi unitățile inamice pe harta mică.' : 'Fără radar: nu mai vezi unitățile inamice pe harta mică.', radarNow ? 'info' : 'bad');
+      ctx.sfx(radarNow ? 'radarOn' : 'radarOff');
     }
-    prevRadar = radar;
+    prevRadar = radarNow;
     noRadar.style.display = radar ? 'none' : '';
     if (!radar) {
       drawNoise();
