@@ -1,3 +1,13 @@
 node_modules
 dist
 .DS_Store
+
+# secrets and local config
+.env
+.env.*
+!.env.example
+.vercel
+
+# tooling output
+*.log
+.playwright-mcp
