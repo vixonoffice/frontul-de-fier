@@ -1,6 +1,6 @@
 # Frontul de Fier — plan 0 to hero
 
-Joc de strategie în timp real (gen Red Alert), în browser, 3D izometric, apoi multiplayer și lansare pe CrazyGames / Poki.
+Joc de strategie în timp real, în browser, 3D izometric, apoi multiplayer și lansare pe CrazyGames / Poki.
 Orchestrator: Claude (decizii, arhitectură, review). Execuție: subagenți Sonnet (cod) și Haiku (sarcini mecanice).
 Iulian: joacă versiunile livrate, dă feedback, plătește ce e de plătit (Tripo/Meshy, server).
 

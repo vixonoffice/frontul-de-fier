@@ -178,7 +178,7 @@ export const UNITS: Record<UnitType, UnitDef> = {
   },
 };
 
-// --- grade (ca în Red Alert 2): unitățile care distrug inamici devin mai bune ---
+// --- grade: unitățile care distrug inamici devin mai bune ---
 export const VETERANCY = {
   killsFor: [3, 7] as const,        // distrugeri pentru veteran, apoi elită
   damageMult: [1, 1.25, 1.5] as const,
